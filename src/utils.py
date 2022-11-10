@@ -74,5 +74,4 @@ def pprint(program):
 
 current_id = count()
 def get_id():
-    next(current_id)
-    return current_id
+    return next(current_id)
