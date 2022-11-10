@@ -12,3 +12,6 @@ Variable = namedtuple('Variable', ['name'])
 String = namedtuple('String', ['value'])
 Number = namedtuple('Number', ['value'])
 Term = Union[Variable, String, Number]
+
+# The special basic symbolic value
+ALPHA = '^a^'

@@ -71,3 +71,8 @@ def pprint(program):
         result += ", ".join(body_results) + ".\n"
 
     return result
+
+current_id = count()
+def get_id():
+    next(current_id)
+    return current_id
