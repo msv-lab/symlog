@@ -12,12 +12,33 @@ def get_symbolic_facts(declarations, k):
 
     return symbolic_facts
 
+
+def transform_into_meta_program(p):
+    symbolic_consts = collect(p, lambda x: x if isinstance(x, Variable) and x.name.startswith(common.SYMBOLIC_CONST_PREFIX))
+    binding_vars = [Variable(f"{common.BINDING_VARIABLE_PREFIX}{x.name}") for x in symbolic_consts]
+
+    def add_binding_vars_to_literal(l):
+        return Literal(n.name, replaced_symbolic.args + binding_vars, n.positive)
+
+    def add_binding_vars(n):
+        if isinstance(n, Rule):
+            if len(n.body) = 0:
+                # fact
+                replaced = transform(n.head, lambda x: f"{common.BINDING_VARIABLE_PREFIX}{x.name}" if x in symbolic_consts else n)
+                return Rule(add_binding_vars_to_literal(replaced), [])
+            else:
+                # rule
+                transform(n.head, lambda x: add_binding_vars_to_literal(x) if isinstance(x, Literal) else x)
+    
+    return transform(p, add_binding_vars)
+    
+
 def get_EDB_rules(declarations, factsDirectory, k):
     """
     Create new rules for EDB goals. `k` is the number of symbolic facts for each edb.
     The rules have two types:
-    1. e1(1, 2, t1, t2):- domain_alpha(t1), domain_beta(t2). e1(1, 2) is the original fact. 
-    2. e1(t1, t2, t1, t2):- domain_alpha(t1), domain_beta(t2).
+    1. e1(1, 2, t1, t2) :- domain_alpha(t1), domain_beta(t2). e1(1, 2) is the original fact. 
+    2. e1(t1, t2, t1, t2) :- domain_alpha(t1), domain_beta(t2).
     domain_x refers to the domain of symbol x. E.g.:
     domain_alpha(1).
     domain_alpha('alpha').
@@ -66,6 +87,7 @@ def _get_domains(relation_name, non_symbolic_facts, symbolic_facts):
     domain_facts = []
     for symbolic_var in symbolic_vars:
         for non_symbolic_constant in non_symbolic_constants:
-            domain_facts.append("{domain}{symbolic_var}({non_symbolic_constant}).".format(domain=common.DOMAIN, symbolic_var=symbolic_var, non_symbolic_constant=non_symbolic_constant))
+            domain_facts.append(f"{common.DOMAIN}{symbolic_var}({non_symbolic_constant}).")
+            
 
     return domain_facts

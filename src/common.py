@@ -17,3 +17,9 @@ Term = Union[Variable, String, Number]
 ALPHA = '^a^'
 VAR = 't'
 DOMAIN = 'domain_'
+
+SYMBOLIC_CONSTANT_PREFIX = '_symlog_symbolic_'
+BINDING_VARIABLE_PREFIX = '_symlog_binding_'
+DOMAIN_PREDICATE_PREFIX = '_symlog_domain_'
+
+
