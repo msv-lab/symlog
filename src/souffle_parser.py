@@ -1,4 +1,4 @@
-import common
+import src.common as common
 from lark import Lark, Transformer, v_args
 
 

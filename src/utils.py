@@ -1,8 +1,7 @@
-import common
+import src.common as common
 import itertools
 from pathlib import Path
 import csv
-from itertools import count
 
 
 def write_relations(directory, relations):
@@ -72,6 +71,7 @@ def pprint(program):
 
     return result
 
-current_id = count()
+
+current_id = itertools.count()
 def get_id():
     return next(current_id)

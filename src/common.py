@@ -15,3 +15,5 @@ Term = Union[Variable, String, Number]
 
 # The special basic symbolic value
 ALPHA = '^a^'
+VAR = 't'
+DOMAIN = 'domain_'
