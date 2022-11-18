@@ -103,7 +103,7 @@ class ASTConstructor(Transformer):
     def start(self, *_):
         return self.program
 
-    
+
 souffle_parser = Lark(souffle_grammar)
 
 
@@ -193,7 +193,7 @@ def transform(node, f):
         return f(Program(program.declarations,
                          program.inputs,
                          program.outputs,
-                         [transform_rule(r, f) for r in program.rules]))
+                         itertools.chain(*[transform_rule(r, f) for r in program.rules]))) # A rule can be transformed into multiple rules due to domain facts
     
     return transform_inner(node, f)
 
@@ -346,7 +346,7 @@ reach_no_call(X, Y, V) :-
 
     program = parse(program_text)
 
-    transformed = transform(program, lambda n: [Variable(f"{n.name}_2")] if isinstance(n, Variable) else n)
+    transformed = transform(program, lambda n: Variable(f"{n.name}_2") if isinstance(n, Variable) else n)
 
     print(pprint(transformed))
 
