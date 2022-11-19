@@ -184,13 +184,13 @@ def transform(node, f):
 
     def transform_rule(rule, f):
         return f(Rule(transform_literal(rule.head, f),
-                      [transform_inner(n, f) for n in rule.body]))
+                      [transform_inner(n, f) for n in rule.body] if rule.body else []))
 
     def transform_program(program, f):
         return f(Program(program.declarations,
                          program.inputs,
                          program.outputs,
-                         itertools.chain(*[transform_rule(r, f) for r in program.rules]))) # A rule can be transformed into multiple rules due to adding domain facts
+                         [transform_rule(r, f) for r in program.rules]))
     
     return transform_inner(node, f)
 
@@ -229,8 +229,10 @@ def collect(node, p):
             result.append(literal)
 
     def collect_rule(rule, p):
-        for el in rule.body:
-            collect_inner(el, p)
+        collect_inner(rule.head, p)
+        if rule.body:
+            for el in rule.body:
+                collect_inner(el, p)
         if p(rule):
             result.append(rule)
 
@@ -334,7 +336,7 @@ reach_no_call(X, Y, V) :-
     """
 
     relations = {
-        "call": [("open", 1, "x"), ("close", 4, "x")],
+        "call": [("open", 1, "x"), ("close", 4, "x"), ("_symlog_symbolic_open", 2, "x"), ("_symlog_symbolic_close", 3, "x")],
         "final": [(5,)],
         "flow": [(1, 2), (2, 3), (3, 4), (4, 5)],
         "label": [(1,), (2,), (3,), (4,), (5,)],
