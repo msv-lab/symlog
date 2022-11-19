@@ -35,7 +35,7 @@ def construct_naive_domain_facts(p):
     const_facts = []
     for pred_name in pred_sym_consts_list_map.keys():
         for sym_consts, consts in itertools.product(pred_sym_consts_list_map[pred_name], pred_consts_list_map[pred_name]):
-            const_facts.extend([construct_fact(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const.value}", [Variable(f"{const}")]) for (const, sym_const) in zip(consts, sym_consts)])
+            const_facts.extend([construct_fact(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const.value}", [Variable(f"{const.value}")]) for (const, sym_const) in zip(consts, sym_consts)])
 
     return const_facts
 
@@ -45,11 +45,42 @@ def construct_abstract_domain_facts(p):
 
 
 def transform_into_meta_program(p):
-    """
-    Create new rules for EDB goals. `k` is the number of symbolic facts for each
-    edb. The rules have two types: 1. e1(1, 2, t1, t2) :- domain_alpha(t1),
-    domain_beta(t2). e1(1, 2) is the original fact. 2. e1(t1, t2, t1, t2) :-
-    domain_alpha(t1), domain_beta(t2).
+    """transform a Datalog program into the meta-Datalog program. E.g.,
+    
+    Original Datalog program: 
+    
+    r(x, x) :- n(x).
+    r(x, y) :- r(x, z), e(z, y).
+
+    e(1, 2).
+    e(alpha, beta).
+    n(1).
+    n(2).
+    n(gamma).
+
+    meta-Datalog program:
+
+    r(x, x, t1, t2, t3) :-
+        n(x, t3),
+        domain_alpha(t1),
+        domain_beta(t2),
+        domain_gamma(t3).
+    r(x, y, t1, t2, t3) :-
+        r(x, z, t1, t2, t3),
+        e(z, y, t1, t2),
+        domain_alpha(t1),
+        domain_beta(t2),
+        domain_gamma(t3).
+    e(1, 2, t1, t2) :-
+        domain_alpha(t1),
+        domain_beta(t2).
+    e(t1, t2, t1, t2) :-
+        domain_alpha(t1),
+        domain_beta(t2).
+    n(1, t3) :-
+        domain_gamma(t3).
+    n(2, t3) :- domain_gamma(t3).
+    n(t3, t3) :-domain_gamma(t3).
     """
 
     symbolic_consts = collect(p, lambda x: (isinstance(
