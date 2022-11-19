@@ -1,13 +1,10 @@
-import sys
 from tempfile import TemporaryDirectory, NamedTemporaryFile
 from pathlib import Path
-from subprocess import run, DEVNULL, PIPE, CalledProcessError
-import argparse
+from subprocess import run, DEVNULL, CalledProcessError
 import itertools
 import csv
 from collections import namedtuple
 from typing import Union
-from enum import Enum, auto
 
 from lark import Lark, Transformer, v_args
 
@@ -193,7 +190,7 @@ def transform(node, f):
         return f(Program(program.declarations,
                          program.inputs,
                          program.outputs,
-                         itertools.chain(*[transform_rule(r, f) for r in program.rules]))) # A rule can be transformed into multiple rules due to domain facts
+                         itertools.chain(*[transform_rule(r, f) for r in program.rules]))) # A rule can be transformed into multiple rules due to adding domain facts
     
     return transform_inner(node, f)
 
