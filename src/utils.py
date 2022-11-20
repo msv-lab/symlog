@@ -1,7 +1,7 @@
 import itertools
 
 
-def filter_empty_dict_values(d):
+def remove_false_dict_values(d):
     return {k: v for k, v in d.items() if v}
 
 

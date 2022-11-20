@@ -1,20 +1,20 @@
-import src.common as common
-from src.souffle import collect, transform, parse, pprint, Variable, Literal, Rule, String, Number
-import src.utils as utils
+import common
+from souffle import collect, transform, parse, pprint, Variable, Literal, Rule, String, Number
+import utils
 
 import itertools
-import copy
-from collections import namedtuple
 from collections import defaultdict
 
 
 def extract_pred_symbolic_consts(fact, symbolic_consts):
     return fact.head.name, [arg for arg in fact.head.args if arg in symbolic_consts]
 
+
 def constr_pred_consts_lst_map(facts, f):
     d = defaultdict(list)
     for k, v in list(map(f, facts)):
-        if v: d[k].append(v)
+        if v:
+            d[k].append(v)
     return d
 
 
@@ -25,9 +25,11 @@ def construct_naive_domain_facts(p):
 
     facts = collect(p, lambda x: isinstance(x, Rule) and not x.body)
 
-    pred_sym_consts_list_map = constr_pred_consts_lst_map(facts, lambda x: extract_pred_symbolic_consts(x, symbolic_consts))
+    pred_sym_consts_list_map = constr_pred_consts_lst_map(
+        facts, lambda x: extract_pred_symbolic_consts(x, symbolic_consts))
 
-    pred_consts_list_map = constr_pred_consts_lst_map(facts, lambda x: (x.head.name, x.head.args))
+    pred_consts_list_map = constr_pred_consts_lst_map(
+        facts, lambda x: (x.head.name, x.head.args))
 
     def construct_fact(pred_name, args):
         return Rule(Literal(pred_name, args, True), [])
@@ -35,7 +37,8 @@ def construct_naive_domain_facts(p):
     const_facts = []
     for pred_name in pred_sym_consts_list_map.keys():
         for sym_consts, consts in itertools.product(pred_sym_consts_list_map[pred_name], pred_consts_list_map[pred_name]):
-            const_facts.extend([construct_fact(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const.value}", [Variable(f"{const.value}")]) for (const, sym_const) in zip(consts, sym_consts)])
+            const_facts.extend([construct_fact(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const.value}", [
+                               Variable(f"{const.value}")]) for (const, sym_const) in zip(consts, sym_consts)])
 
     return const_facts
 
@@ -46,9 +49,9 @@ def construct_abstract_domain_facts(p):
 
 def transform_into_meta_program(p):
     """transform a Datalog program into the meta-Datalog program. E.g.,
-    
+
     Original Datalog program: 
-    
+
     r(x, x) :- n(x).
     r(x, y) :- r(x, z), e(z, y).
 
@@ -58,7 +61,7 @@ def transform_into_meta_program(p):
     n(2).
     n(gamma).
 
-    meta-Datalog program:
+    Transformed meta-Datalog program:
 
     r(x, x, t1, t2, t3) :-
         n(x, t3),
@@ -86,20 +89,16 @@ def transform_into_meta_program(p):
     symbolic_consts = collect(p, lambda x: (isinstance(
         x, String) or isinstance(x, Number)) and str(x.value).startswith(common.SYMBOLIC_CONSTANT_PREFIX))
 
-    declarations = copy.deepcopy(p.declarations)
-
     # collect facts
     facts = collect(p, lambda x: isinstance(x, Rule) and not x.body)
 
-    pred_sym_consts_map = utils.flatten_dict(constr_pred_consts_lst_map(facts, lambda x: extract_pred_symbolic_consts(x, symbolic_consts)))
+    pred_sym_consts_map = utils.flatten_dict(constr_pred_consts_lst_map(
+        facts, lambda x: extract_pred_symbolic_consts(x, symbolic_consts)))
 
     edb_names = list(map(lambda x: x.head.name, facts))
 
     binding_vars = [
         Variable(f"{common.BINDING_VARIABLE_PREFIX}{x.value}") for x in symbolic_consts]
-
-    def add_declaration(name, types):
-        p.declarations[name] = types
 
     def add_binding_vars_to_literal(l, binding_vars):
         return Literal(l.name, l.args + binding_vars, l.positive)
@@ -111,31 +110,43 @@ def transform_into_meta_program(p):
         # E.g., domain_alpha(var_alpha)
         return Literal(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_arg.value}", [Variable(f"{common.BINDING_VARIABLE_PREFIX}{sym_arg.value}")], True)
 
-    def add_declarations(n):
+    def transform_declarations():
 
-        if isinstance(n, Rule):
-            if len(n.body) == 0:
-                symbolic_consts_of_n_pred = pred_sym_consts_map.get(n.head.name, [])
+        def transform_declaration(n):
+            if not n.body:
+                symbolic_consts_of_n_pred = pred_sym_consts_map.get(
+                    n.head.name, [])
 
-                add_declaration(n.head.name, declarations[n.head.name] + [common.DEFAULT_SOUFFLE_TYPE] * len(symbolic_consts_of_n_pred))
+                res = [(n.head.name, p.declarations[n.head.name] +
+                        [common.DEFAULT_SOUFFLE_TYPE] * len(symbolic_consts_of_n_pred))]  # EDB head declaration
 
-                for x in symbolic_consts_of_n_pred:  # add domain_symbol declarations
-                    if p.declarations.get(f"{common.DOMAIN_PREDICATE_PREFIX}{x.value}", None) is None:
-                        add_declaration(f"{common.DOMAIN_PREDICATE_PREFIX}{x.value}", [common.DEFAULT_SOUFFLE_TYPE])
+                res.extend(
+                    [(f"{common.DOMAIN_PREDICATE_PREFIX}{x.value}", [common.DEFAULT_SOUFFLE_TYPE])
+                     for x in symbolic_consts_of_n_pred if p.declarations.get(f"{common.DOMAIN_PREDICATE_PREFIX}{x.value}", None) is None]
+                )  # domain declarations
+
+                return res
+
             else:
+                # IDB head declaration
+                return [(n.head.name, p.declarations[n.head.name] + [common.DEFAULT_SOUFFLE_TYPE] * len(binding_vars))]
 
-                add_declaration(n.head.name, declarations[n.head.name] + [common.DEFAULT_SOUFFLE_TYPE] * len(binding_vars))
+        rules = collect(p, lambda x: isinstance(x, Rule))
 
-        return n
+        transformed_declarations = {k: v for k, v in itertools.chain(
+            *map(transform_declaration, rules))}
+
+        return transformed_declarations
 
     def add_binding_vars(n):
         if isinstance(n, Rule):
-            if len(n.body) == 0:
+            if not n.body:
                 # fact
                 replaced = transform(
                     n.head, lambda x: Variable(f"{common.BINDING_VARIABLE_PREFIX}{x.value}") if x in symbolic_consts else x)
 
-                domain_body = [add_domain_literal(x) for x in pred_sym_consts_map.get(n.head.name, [])]
+                domain_body = [add_domain_literal(
+                    x) for x in pred_sym_consts_map.get(n.head.name, [])]
 
                 return Rule(add_binding_vars_to_literal(replaced, binding_vars_of_pred(n.head.name)), domain_body)
             else:
@@ -143,7 +154,8 @@ def transform_into_meta_program(p):
                 replaced_head = transform(n.head, lambda x: add_binding_vars_to_literal(
                     x, binding_vars) if isinstance(x, Literal) else x)
 
-                replaced_body = list(map(lambda l: transform(l, lambda x: add_binding_vars_to_literal(x, binding_vars_of_pred(x.name) if x.name in edb_names else binding_vars) if isinstance(x, Literal) else x), n.body))
+                replaced_body = list(map(lambda l: transform(l, lambda x: add_binding_vars_to_literal(x, binding_vars_of_pred(
+                    x.name) if x.name in edb_names else binding_vars) if isinstance(x, Literal) else x), n.body))
 
                 domain_body = [add_domain_literal(x) for x in symbolic_consts]
 
@@ -151,7 +163,10 @@ def transform_into_meta_program(p):
 
         return n
 
-    return transform(transform(p, add_declarations), add_binding_vars)
+    transformed_decls = transform_declarations()
+    p.declarations.update(transformed_decls)
+
+    return transform(p, add_binding_vars)
 
 
 if __name__ == "__main__":
@@ -219,4 +234,3 @@ variable("x").
     transformed.rules.extend(facts)
 
     print(pprint(transformed))
-
