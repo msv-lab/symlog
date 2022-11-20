@@ -1,16 +1,12 @@
-import sys
 from tempfile import TemporaryDirectory, NamedTemporaryFile
 from pathlib import Path
-from subprocess import run, DEVNULL, PIPE, CalledProcessError
-import argparse
+from subprocess import run, DEVNULL, CalledProcessError
 import itertools
 import csv
 from collections import namedtuple
 from typing import Union
-from enum import Enum, auto
 
 from lark import Lark, Transformer, v_args
-
 
 # declarations: name -> argument types
 # output: list of names
@@ -41,7 +37,7 @@ souffle_grammar = """
     ?literal: NAME "(" [arg ("," arg)*] ")" -> atom
             | "!" NAME "(" [arg ("," arg)*] ")"  -> negated_atom
             | arg "=" arg -> unification
-            | arg "!=" arg -> nagated_unification
+            | arg "!=" arg -> negated_unification
     body: literal ("," literal)*
     %import common.CNAME -> NAME
     %import common.ESCAPED_STRING
@@ -104,7 +100,7 @@ class ASTConstructor(Transformer):
     def start(self, *_):
         return self.program
 
-    
+
 souffle_parser = Lark(souffle_grammar)
 
 
@@ -126,7 +122,7 @@ def pprint(program):
         return literal_result
         
     def pprint_unification(u):
-        op = "=" if l.positive else "!="
+        op = "=" if u.positive else "!="
         return f"{u.left} {op} {u.right}"
     
     result = ""
@@ -188,7 +184,7 @@ def transform(node, f):
 
     def transform_rule(rule, f):
         return f(Rule(transform_literal(rule.head, f),
-                      [transform_inner(n, f) for n in rule.body]))
+                      [transform_inner(n, f) for n in rule.body] if rule.body else []))
 
     def transform_program(program, f):
         return f(Program(program.declarations,
@@ -233,8 +229,10 @@ def collect(node, p):
             result.append(literal)
 
     def collect_rule(rule, p):
-        for el in rule.body:
-            collect_inner(el, p)
+        collect_inner(rule.head, p)
+        if rule.body:
+            for el in rule.body:
+                collect_inner(el, p)
         if p(rule):
             result.append(rule)
 
@@ -338,7 +336,7 @@ reach_no_call(X, Y, V) :-
     """
 
     relations = {
-        "call": [("open", 1, "x"), ("close", 4, "x")],
+        "call": [("open", 1, "x"), ("close", 4, "x"), ("_symlog_symbolic_open", 2, "x"), ("_symlog_symbolic_close", 3, "x")],
         "final": [(5,)],
         "flow": [(1, 2), (2, 3), (3, 4), (4, 5)],
         "label": [(1,), (2,), (3,), (4,), (5,)],
