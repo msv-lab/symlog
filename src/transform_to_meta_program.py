@@ -1,9 +1,12 @@
+import copy
 import common
 from souffle import collect, transform, parse, pprint, Variable, Literal, Rule, String, Number
 import utils
 
 import itertools
 from collections import defaultdict
+
+DEBUG = True
 
 
 def extract_pred_symbolic_consts(fact, symbolic_consts):
@@ -18,9 +21,9 @@ def constr_pred_consts_lst_map(facts, f):
     return d
 
 
-def constr_varef_joined_varefs_set_map(joined_varefs, f):
+def constr_loc_joined_locs_map(joined_locs, f):
     d = defaultdict(set)
-    for k, v in list(map(f, joined_varefs)):
+    for k, v in list(map(f, joined_locs)):
         if v:
             d[k].add(v)
     return d
@@ -34,45 +37,47 @@ def analyse_symbolic_constants(p):
     sym_facts = collect(p, lambda x: isinstance(x, Rule) and not x.body and any([isinstance(
         arg, String) and str(arg.value).startswith(common.SYMBOLIC_CONSTANT_PREFIX) for arg in x.head.args]))
 
-    # varef -> (pred_name, index), values -> the set of possible values at index of pred
-    varef_values_map = defaultdict(set)
-    symconst_consts_map = dict()
+    # loc -> (pred_name, index), values -> the set of possible values at index of pred during evaluation
+    loc_values_map = defaultdict(set)
+    loc_symvalues_map = defaultdict(set)
 
-    def init_varef_values_map():
+    def init_loc_values_map():
         for fact in facts:
             for i, arg in enumerate(fact.head.args):
-                varef_values_map[(fact.head.name, i)].add(arg)
+                loc_values_map[(fact.head.name, i)].add(arg)
+                if str(arg.value).startswith(common.SYMBOLIC_CONSTANT_PREFIX):
+                    loc_symvalues_map[(fact.head.name, i)].add(arg)
 
-    def varef_values_of_head(rule):
+    def loc_values_of_head(rule):
 
-        def varef_values_of_arg(idx_arg):
+        def loc_values_of_arg(idx_arg):
             idx, arg = idx_arg
-            varef = (rule.head.name, idx)
+            loc = (rule.head.name, idx)
 
-            return varef, set(itertools.chain(*[varef_values_map[(body_lit.name, body_lit.args.index(arg))] for body_lit in rule.body if arg in body_lit.args and body_lit.positive]))
+            return loc, set(itertools.chain(*[loc_values_map[(body_lit.name, body_lit.args.index(arg))] for body_lit in rule.body if arg in body_lit.args and body_lit.positive]))
 
-        return list(map(varef_values_of_arg, enumerate(rule.head.args)))
+        return list(map(loc_values_of_arg, enumerate(rule.head.args)))
 
-    def analyse_varef_values_of_program():
+    def analyse_loc_values_of_program():
 
-        init_varef_values_map()
+        init_loc_values_map()
         is_changed = True
 
         while is_changed:
             is_changed = False
             for rule in rules:
-                for varef, values in varef_values_of_head(rule):
-                    is_changed = not varef_values_map[varef].issuperset(
+                for loc, values in loc_values_of_head(rule):
+                    is_changed = not loc_values_map[loc].issuperset(
                         values) if not is_changed else True
-                    varef_values_map[varef].update(values)
+                    loc_values_map[loc].update(values)
 
-    def joined_varefs_of_sym_const_varef():
+    def joined_locs_of_sym_const_loc():
 
-        def extract_joined_varef_pair(l1, l2):
+        def extract_joined_loc_pair(l1, l2):
             # l1 is the body literal has common variables with l2; l2 is the EDB literal uses symbolic constants
             return [((l2.name, l2.args.index(arg)), (l1.name, l1.args.index(arg))) for arg in set(l2.args).intersection(set(l1.args))]
 
-        def joined_varefs_of_symbolic_fact(sym_fact):
+        def joined_locs_of_symbolic_fact(sym_fact):
             rules_using_sym_fact = collect(p, lambda x: isinstance(x, Rule) and x.body and any(
                 [body_lit.name == sym_fact.head.name for body_lit in x.body if body_lit.positive]))  # positive body literals only
 
@@ -80,60 +85,44 @@ def analyse_symbolic_constants(p):
                 rule: body_lit for rule in rules_using_sym_fact for body_lit in rule.body if body_lit.name == sym_fact.head.name
             }
 
-            varefs = []
-
+            locs = []
             for rule in rules_using_sym_fact:
                 lit_using_sym_fact = rule_lit_using_sym_fact[rule]
-                varefs.extend(
-                    list(itertools.chain(*map(lambda l: extract_joined_varef_pair(l, lit_using_sym_fact), filter(
+                locs.extend(
+                    list(itertools.chain(*map(lambda l: extract_joined_loc_pair(l, lit_using_sym_fact),
+                                              filter(
                         lambda l: set(l.args).intersection(set(lit_using_sym_fact.args)) and l != lit_using_sym_fact, rule.body))))
                 )
+            return locs
 
-            return varefs
+        joined_locs = list(itertools.chain(
+            *map(joined_locs_of_symbolic_fact, sym_facts)))
 
-        joined_varefs = list(itertools.chain(
-            *map(joined_varefs_of_symbolic_fact, sym_facts)))
-
-        return constr_varef_joined_varefs_set_map(joined_varefs, lambda x: x)
+        return constr_loc_joined_locs_map(joined_locs, lambda x: x)
 
     def construct_try_unify_consts_map():
+        # sym const -> set of consts that sym const attempt to unify with
+        symconst_consts_map = dict()
+        symloc_joined_locs_map = joined_locs_of_sym_const_loc()
 
-        symvaref_joined_varefs_map = joined_varefs_of_sym_const_varef()
+        for loc, symvalues in loc_symvalues_map.items():
+            symconst_key = common.DELIMITER.join([x.value for x in symvalues])
 
-        symvaref_joined_consts_map = {x: set(
-            itertools.chain(*[varef_values_map[varef] for varef in symvaref_joined_varefs_map[x]])) for x in symvaref_joined_varefs_map}
+            symconst_consts_map[symconst_key] = loc_values_map[loc] | set(
+                itertools.chain(*[loc_values_map[jloc] for jloc in symloc_joined_locs_map[loc]]))  # union of original constants and in principle to be joined constants
 
-        symbolic_consts = collect(p, lambda x: (isinstance(
-            x, String)) and x.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX))
+        # convert to string
+        return {k: set(map(lambda x: x.value, v)) for k, v in symconst_consts_map.items()}
 
-        pred_sym_consts_list_map = constr_pred_consts_lst_map(
-            facts, lambda x: extract_pred_symbolic_consts(x, symbolic_consts))
+    analyse_loc_values_of_program()  # analyse loc values of the program `p`
+    symconst_try_unify_map = construct_try_unify_consts_map()
 
-        pred_consts_list_map = constr_pred_consts_lst_map(
-            facts, lambda x: (x.head.name, x.head.args))
+    if DEBUG:
+        # print the loc values map
+        print("\nloc_values_map: \n", "\n".join(
+            [f"{k} -> {set(map(lambda x: x.value, v))}" for k, v in loc_values_map.items()]))
 
-        # sym varefs
-        sym_varefs = list()
-        for pred_name, sym_consts_list in pred_sym_consts_list_map.items():
-            if not sym_consts_list:
-                return
-            sym_varefs.extend(
-                [(pred_name, i) for i, _ in enumerate(sym_consts_list[0])]
-            )
-
-        for varef in sym_varefs:
-            # convert varef to symbolic constants
-            symconst_key = common.DELIMITER.join(
-                map(lambda x: x[varef[1]].value, pred_sym_consts_list_map[varef[0]]))
-
-            # union of in principle to be joined constants and the original constants
-            symconst_consts_map[symconst_key] = set(map(lambda x: x.value, symvaref_joined_consts_map[varef])) if varef in symvaref_joined_consts_map else set() | set(
-                map(lambda x: x[varef[1]].value, pred_consts_list_map[varef[0]]))
-
-    analyse_varef_values_of_program()  # analyse varef values of the program `p`
-    construct_try_unify_consts_map()
-
-    return symconst_consts_map
+    return symconst_try_unify_map
 
 
 def construct_naive_domain_facts(p):
@@ -353,8 +342,7 @@ variable("x").
 
     print(pprint(transformed))
 
-    symconst_consts_map = analyse_symbolic_constants(program)
+    symconst_try_unify_map = analyse_symbolic_constants(program)
 
-    print("\n symconst_consts_map")
-    for k, v in symconst_consts_map.items():
-        print(k, v)
+    print("\n symconst_try_unify_map: \n" +
+          '\n'.join([f"{k} -> {v}" for k, v in symconst_try_unify_map.items()]))
