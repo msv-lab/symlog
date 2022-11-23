@@ -1,10 +1,10 @@
-import copy
 import common
 from souffle import collect, transform, parse, pprint, Variable, Literal, Rule, String, Number
 import utils
 
 import itertools
 from collections import defaultdict
+from sympy.utilities.iterables import multiset_partitions
 
 DEBUG = True
 
@@ -111,8 +111,9 @@ def analyse_symbolic_constants(p):
             symconst_consts_map[symconst_key] = loc_values_map[loc] | set(
                 itertools.chain(*[loc_values_map[jloc] for jloc in symloc_joined_locs_map[loc]]))  # union of original constants and in principle to be joined constants
 
-        # convert to string
-        return {k: set(map(lambda x: x.value, v)) for k, v in symconst_consts_map.items()}
+        return symconst_consts_map
+        # # convert to string
+        # return {k: set(map(lambda x: x.value, v)) for k, v in symconst_consts_map.items()}
 
     analyse_loc_values_of_program()  # analyse loc values of the program `p`
     symconst_try_unify_map = construct_try_unify_consts_map()
@@ -151,7 +152,48 @@ def construct_naive_domain_facts(p):
 
 
 def construct_abstract_domain_facts(p):
-    pass
+    symconst_unifiable_consts_map = analyse_symbolic_constants(p)
+    sym_consts = collect(p, lambda x: isinstance(
+        x, String) and x.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX))
+
+    def construct_sym_constr(sym_const, equiv_partition):
+        res = []
+        for equiv_class in equiv_partition:
+            if sym_const in equiv_class:
+                res.extend([sym_const.value + common.EQUAL +
+                           other_const.value for other_const in equiv_class if other_const != sym_const])
+            else:
+                res.extend([sym_const.value + common.NOT_EQUAL +
+                           other_const.value for other_const in equiv_class if other_const != sym_const])
+        return res
+
+    def construct_symcstr_facts():
+        equiv_partitions = itertools.chain(
+            *[multiset_partitions(sym_consts, k) for k in range(1, len(sym_consts)-1)]) # end at len -1 because we don't need to consider the case where all symbolic constants are mutually inequuvalent.
+        
+        symcstr_facts = []
+        
+        for (sym_const, equiv_partition) in itertools.product(sym_consts, equiv_partitions):
+            
+            symconst_constr = ', '.join(construct_sym_constr(sym_const, equiv_partition))
+            
+            symcstr_facts.append(construct_fact(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const.value}", [String(symconst_constr)]))
+        
+        return symcstr_facts
+
+    def construct_fact(pred_name, args):
+        return Rule(Literal(pred_name, args, True), [])
+
+    # domain facts for to-be-joined constants
+    def construct_unifiable_symconst_facts():
+        return [construct_fact(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const}", [const]) for sym_const, consts in symconst_unifiable_consts_map.items() for const in consts]
+
+    sym_cstr_facts = construct_symcstr_facts()
+    unifiable_symconst_facts = construct_unifiable_symconst_facts()
+
+    abstract_domain_facts = sym_cstr_facts + unifiable_symconst_facts
+
+    return abstract_domain_facts
 
 
 def transform_into_meta_program(p):
@@ -338,11 +380,13 @@ variable("x").
 
     facts = construct_naive_domain_facts(program)
 
-    transformed.rules.extend(facts)
+    abstract_facts = construct_abstract_domain_facts(program)
+
+    transformed.rules.extend(facts + abstract_facts)
 
     print(pprint(transformed))
 
     symconst_try_unify_map = analyse_symbolic_constants(program)
 
     print("\n symconst_try_unify_map: \n" +
-          '\n'.join([f"{k} -> {v}" for k, v in symconst_try_unify_map.items()]))
+          '\n'.join([f"{k} -> {[i.value for i in v]}" for k, v in symconst_try_unify_map.items()]))
