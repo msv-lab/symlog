@@ -4,3 +4,6 @@ DOMAIN_PREDICATE_PREFIX = '_symlog_domain_'
 DEFAULT_SOUFFLE_TYPE = 'symbol'
 
 DELIMITER = ', '
+EQUAL = ' = '
+NEGATION = '!'
+NOT_EQUAL = ' != '
