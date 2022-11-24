@@ -124,7 +124,8 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], 
 
         return loc_values_map
 
-    def construct_unifiable_consts_map(loc_values_map: LocValuesDict, eloc_symvalues_map: LocValuesDict, symloc_unifiable_locs_map: LocLocsDict) -> Dict[Tuple[Set[Value]], Set[Value]]:
+    def construct_unifiable_consts_map(loc_values_map: LocValuesDict, 
+    eloc_symvalues_map: LocValuesDict, symloc_unifiable_locs_map: LocLocsDict) -> Dict[Tuple[Set[Value]], Set[Value]]:
 
         # sym const -> set of consts that sym const attempt to unify with
         unifiable_consts_map = dict()
