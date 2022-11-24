@@ -3,7 +3,7 @@ import common
 from souffle import collect, transform, parse, pprint, Variable, Literal, Rule, String, Number, Program
 import utils
 
-from typing import List, Dict, Set, Tuple, Optional, Union, Any, Callable, DefaultDict
+from typing import List, Dict, Set, Tuple, Optional, DefaultDict
 import itertools
 from collections import defaultdict
 
@@ -30,74 +30,78 @@ def constr_loc_joined_locs_map(joined_locs, f):
     return d
 
 
-def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[Union[String, Number]]], Set[Union[String, Number]]]:
+def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], Set[String | Number]]:
     """Analyse the constansts that symbolic constants in program `p` in principle attempt to unify with during evaluation."""
 
     rules = collect(p, lambda x: isinstance(x, Rule))
 
-    Loc = Tuple[str, int]  # loc -> (pred_name, index)
-    Value = Union[String, Number]  # value -> (String | Number)
+    Loc = Tuple[str, int]  # loc: (pred_name, index)
+    Value = String | Number
     LocValuesDict = DefaultDict[Loc, Set[Value]]
     LocLocsDict = DefaultDict[Loc, Set[Loc]] 
 
-    def init(rules: List[Rule]) -> Tuple[LocValuesDict, LocValuesDict, LocLocsDict]:
+    def init_maps(rules: List[Rule]) -> Tuple[LocValuesDict, LocValuesDict, LocLocsDict]:
 
-        loc_values_map: LocValuesDict = defaultdict(set) # loc_values -> (Loc -> Values)
-        loc_symvalues_map: LocValuesDict = defaultdict(set)
-        hloc_blocs_map: DefaultDict[Loc, Set[Loc]] = defaultdict(set) # hloc_blocs -> (Loc -> Set[Loc])
-        symloc_unifiable_locs_map: DefaultDict[Loc, Set[Loc]] = defaultdict(set)
+        loc_values_map: LocValuesDict = defaultdict(set) # {loc: set of values that variable at loc can take}
+        eloc_symvalues_map: LocValuesDict = defaultdict(set) # {loc in edb: set of symbolic values that variable at loc can take}
+        hloc_pos_blocs_map: DefaultDict[Loc, Set[Loc]] = defaultdict(set) # {loc in head: set of locs in body that share the same variable as loc in head}
+        symloc_unifiable_locs_map: DefaultDict[Loc, Set[Loc]] = defaultdict(set) # {loc of sym const in edb: set of locs where variables try to unified with sym const}
 
-        def check_arg_lit(arg: Union[Variable, String, Number], lit: Literal) -> bool:
+        def var_in_pos_lit(arg: Variable|String|Number, lit: Literal) -> bool:
             if isinstance(arg, Variable) and arg in lit.args and lit.positive:
                 return True
             return False
 
-        def find_lit_by_name(name: str, lits: List[Literal]) -> Optional[Literal]:
-            for lit in lits:
-                if lit.name == name:
-                    return lit
+        def find_arg_at_loc(loc: Loc, rule: Rule) -> Optional[Loc]:
+            pred_name, idx = loc
+            for l in rule.body:
+                if l.name == pred_name:
+                    return l.args[idx]
             return None
 
-        def find_locs_by_arg(arg: Union[Variable, String, Number], lits: List[Literal]) -> Optional[Set[Loc]]:      
+        def find_unifiable_locs_of_arg(arg: Variable|String|Number, lits: List[Literal]) -> Set[Loc]:   
             locs = set()
             for lit in lits:
-                if check_arg_lit(arg, lit):
+                if var_in_pos_lit(arg, lit): # only positive literals
                     locs.add((lit.name, lit.args.index(arg)))
             return locs
 
-        def add_hloc_blocs(rule: Rule) -> None:
-            """Add the head location and its corresp positive body locations to `hloc_blocs_map`."""
+        def add_hloc_pos_blocs(rule: Rule) -> None:
+            if not rule.body:
+                return
             for i, arg in enumerate(rule.head.args):
                 hloc = (rule.head.name, i)
-                hloc_blocs_map[hloc].update(set([(body_lit.name, body_lit.args.index(
-                    arg)) for body_lit in rule.body if check_arg_lit(arg, body_lit)]))
+                hloc_pos_blocs_map[hloc].update(set([(body_lit.name, body_lit.args.index(
+                    arg)) for body_lit in rule.body if var_in_pos_lit(arg, body_lit)])) # only positive literals
 
-        def add_loc_values(fact: Rule) -> None:
-            """Add location in fact and its corresp values/symbolic values to `loc_values_map` and `loc_symvalues_map`."""
-            for i, arg in enumerate(fact.head.args):
-                loc_values_map[(fact.head.name, i)].add(arg)
-                if isinstance(arg, String) and arg.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX):
-                    loc_symvalues_map[(fact.head.name, i)].add(arg)
+        def add_loc_values(rule: Rule) -> None:
+            if not rule.body:
+                for i, arg in enumerate(rule.head.args):
+                    loc_values_map[(rule.head.name, i)].add(arg) # store loc, and corresp value in fact
 
-        for rule in rules:
-            if rule.body:
-                add_hloc_blocs(rule) 
+                    if isinstance(arg, String) and arg.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX): # when value is symbolic, add loc, value to loc_symvalues_map
+                        eloc_symvalues_map[(rule.head.name, i)].add(arg)
             else:
-                add_loc_values(rule) # initial values of a location are from facts.
+                for lit in [rule.head] + list(rule.body):
+                    for i, arg in enumerate(lit.args):
+                        if isinstance(arg, String) or isinstance(arg, Number):
+                            loc_values_map[(lit.name, i)].add(arg) # store loc, and corresp constant appearing in rules
 
-        for symloc in loc_symvalues_map.keys():
-            edb_pred_name, idx = symloc
-            for rule in rules:
-                if not rule.body:
+        # initilize loc_values_map, edbloc_symvalues_map, hloc_pos_blocs_map
+        for rule in rules:
+            add_hloc_pos_blocs(rule) 
+            add_loc_values(rule)
+
+        # initilize symloc_unifiable_locs_map
+        for loc in eloc_symvalues_map:
+            for rule in collect(p, lambda x: isinstance(x, Rule) and x.body): # non-facts rules
+                arg_at_loc = find_arg_at_loc(loc, rule)
+                if arg_at_loc is None:
                     continue
-                ret_lit = find_lit_by_name(edb_pred_name, rule.body)
-                if ret_lit is None:
-                    continue
-                unifiable_locs = find_locs_by_arg(ret_lit.args[idx], rule.body) - set([symloc])
-                symloc_unifiable_locs_map[symloc].update(unifiable_locs)
-        
-        
-        return loc_values_map, loc_symvalues_map, hloc_blocs_map, symloc_unifiable_locs_map
+                unifiable_locs = find_unifiable_locs_of_arg(arg_at_loc, rule.body) - set([loc])
+                symloc_unifiable_locs_map[loc].update(unifiable_locs)
+
+        return loc_values_map, eloc_symvalues_map, hloc_pos_blocs_map, symloc_unifiable_locs_map
 
     def analyse_loc_values(loc_values_map: LocValuesDict, hloc_blocs_map: LocLocsDict) -> LocValuesDict:
         is_changed = True
@@ -115,23 +119,22 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[Union[String, Numbe
         
         return loc_values_map
 
-    def construct_unifiable_consts_map(loc_values_map: LocValuesDict, loc_symvalues_map: LocValuesDict, symloc_unifiable_locs_map: LocLocsDict) -> Dict[Tuple[Set[Value]], Set[Value]]:
-        # sym const -> set of consts that sym const attempt to unify with
-        unifiable_consts_map = dict()
+    def construct_unifiable_consts_map(loc_values_map: LocValuesDict, eloc_symvalues_map: LocValuesDict, symloc_unifiable_locs_map: LocLocsDict) -> Dict[Tuple[Set[Value]], Set[Value]]:
 
-        for loc, symvalues in loc_symvalues_map.items():
-            # symconst_key = common.DELIMITER.join([x.value for x in symvalues])
+        unifiable_consts_map = dict() # sym const -> set of consts that sym const attempt to unify with
 
-            unifiable_consts_map[tuple(symvalues)] = loc_values_map[loc] | set(
-                itertools.chain(*[loc_values_map[jloc] for jloc in symloc_unifiable_locs_map[loc]]))  # union of original constants and in principle to be joined constants
+        for loc, symvalues in eloc_symvalues_map.items():
+
+            unifiable_consts_map[tuple(symvalues)] = set(
+                itertools.chain(*[loc_values_map[jloc] for jloc in symloc_unifiable_locs_map[loc]]))  # set of in principle to-be-joined constants
 
         return unifiable_consts_map
 
-    init_loc_values_map, loc_symvalues_map, hloc_blocs_map, symloc_unifiable_locs_map = init(rules)
+    init_loc_values_map, eloc_symvalues_map, hloc_blocs_map, symloc_unifiable_locs_map = init_maps(rules)
     
     loc_values_map = analyse_loc_values(init_loc_values_map, hloc_blocs_map)
 
-    unifiable_consts_map = construct_unifiable_consts_map(loc_values_map, loc_symvalues_map, symloc_unifiable_locs_map)
+    unifiable_consts_map = construct_unifiable_consts_map(loc_values_map, eloc_symvalues_map, symloc_unifiable_locs_map)
 
     if DEBUG:
         # print the loc values map
