@@ -30,14 +30,16 @@ def constr_loc_joined_locs_map(joined_locs, f):
 
 
 def analyse_symbolic_constants(p):
-    """Analyse the constansts that symbolic constants in program `p` in principle attmpte to unify with"""
+    """Analyse the constansts that symbolic constants in program `p` in
+    principle attmpte to unify with"""
 
     facts = collect(p, lambda x: isinstance(x, Rule) and not x.body)
     rules = collect(p, lambda x: isinstance(x, Rule) and x.body)
     sym_facts = collect(p, lambda x: isinstance(x, Rule) and not x.body and any([isinstance(
         arg, String) and str(arg.value).startswith(common.SYMBOLIC_CONSTANT_PREFIX) for arg in x.head.args]))
 
-    # loc -> (pred_name, index), values -> the set of possible values at index of pred during evaluation
+    # loc -> (pred_name, index), values -> the set of possible values at index
+    # of pred during evaluation
     loc_values_map = defaultdict(set)
     loc_symvalues_map = defaultdict(set)
 
@@ -74,7 +76,8 @@ def analyse_symbolic_constants(p):
     def joined_locs_of_sym_const_loc():
 
         def extract_joined_loc_pair(l1, l2):
-            # l1 is the body literal has common variables with l2; l2 is the EDB literal uses symbolic constants
+            # l1 is the body literal has common variables with l2; l2 is the EDB
+            # literal uses symbolic constants
             return [((l2.name, l2.args.index(arg)), (l1.name, l1.args.index(arg))) for arg in set(l2.args).intersection(set(l1.args))]
 
         def joined_locs_of_symbolic_fact(sym_fact):
@@ -113,7 +116,8 @@ def analyse_symbolic_constants(p):
 
         return symconst_consts_map
         # # convert to string
-        # return {k: set(map(lambda x: x.value, v)) for k, v in symconst_consts_map.items()}
+        # return {k: set(map(lambda x: x.value, v)) for k, v in
+        # symconst_consts_map.items()}
 
     analyse_loc_values_of_program()  # analyse loc values of the program `p`
     symconst_try_unify_map = construct_try_unify_consts_map()
@@ -161,31 +165,35 @@ def construct_abstract_domain_facts(p):
         equiv_class_str = None
         for equiv_class in equiv_partition:
             if sym_const in equiv_class:
-                equiv_class_str = common.DELIMITER.join([sym.value for sym in sorted(equiv_class)]) # convert to string
+                equiv_class_str = common.DELIMITER.join(
+                    [sym.value for sym in sorted(equiv_class)])  # convert to string
 
                 res.extend([sym_const.value + common.EQUAL +
                            other_const.value for other_const in equiv_class if other_const != sym_const])
             else:
                 res.extend([sym_const.value + common.NOT_EQUAL +
                            other_const.value for other_const in equiv_class if other_const != sym_const])
-        
+
         if equiv_class_str is None:
-            raise ValueError(f"Symbolic constant {sym_const} is not in any equivalence class")
+            raise ValueError(
+                f"Symbolic constant {sym_const} is not in any equivalence class")
 
         res.insert(0, equiv_class_str)
         return res
 
     def construct_symcstr_facts():
         equiv_partitions = itertools.chain(
-            *[multiset_partitions(sym_consts, k) for k in range(1, len(sym_consts)-1)]) # end at len -1 because we don't need to consider the case where all symbolic constants are mutually inequuvalent.
-        
+            *[multiset_partitions(sym_consts, k) for k in range(1, len(sym_consts)-1)])  # end at len -1 because the case where all symbolic constants are mutually inequivalent is duplicated.
+
         symcstr_facts = []
-        
+
         for (sym_const, equiv_partition) in itertools.product(sym_consts, equiv_partitions):
 
-            symconst_constr = common.DELIMITER.join(construct_sym_constr(sym_const, equiv_partition))
+            symconst_constr = common.DELIMITER.join(
+                construct_sym_constr(sym_const, equiv_partition))
 
-            symcstr_facts.append(construct_fact(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const.value}", [String(symconst_constr)]))
+            symcstr_facts.append(construct_fact(
+                f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const.value}", [String(symconst_constr)]))
 
         return symcstr_facts
 
@@ -209,38 +217,24 @@ def transform_into_meta_program(p):
 
     Original Datalog program: 
 
-    r(x, x) :- n(x).
-    r(x, y) :- r(x, z), e(z, y).
+    r(x, x) :- n(x).  r(x, y) :- r(x, z), e(z, y).
 
-    e(1, 2).
-    e(alpha, beta).
-    n(1).
-    n(2).
-    n(gamma).
+    e(1, 2).  e(alpha, beta).  n(1).  n(2).  n(gamma).
 
     Transformed meta-Datalog program:
 
     r(x, x, t1, t2, t3) :-
-        n(x, t3),
-        domain_alpha(t1),
-        domain_beta(t2),
-        domain_gamma(t3).
+        n(x, t3), domain_alpha(t1), domain_beta(t2), domain_gamma(t3).
     r(x, y, t1, t2, t3) :-
-        r(x, z, t1, t2, t3),
-        e(z, y, t1, t2),
-        domain_alpha(t1),
-        domain_beta(t2),
+        r(x, z, t1, t2, t3), e(z, y, t1, t2), domain_alpha(t1), domain_beta(t2),
         domain_gamma(t3).
     e(1, 2, t1, t2) :-
-        domain_alpha(t1),
-        domain_beta(t2).
+        domain_alpha(t1), domain_beta(t2).
     e(t1, t2, t1, t2) :-
-        domain_alpha(t1),
-        domain_beta(t2).
+        domain_alpha(t1), domain_beta(t2).
     n(1, t3) :-
         domain_gamma(t3).
-    n(2, t3) :- domain_gamma(t3).
-    n(t3, t3) :-domain_gamma(t3).
+    n(2, t3) :- domain_gamma(t3).  n(t3, t3) :-domain_gamma(t3).
     """
 
     symbolic_consts = collect(p, lambda x: (isinstance(
@@ -329,56 +323,28 @@ def transform_into_meta_program(p):
 if __name__ == "__main__":
 
     program_text = """
-.decl reach_no_call(from:number, to:number, v:symbol)
-.decl call(f:symbol, node:number, v:symbol)
-.decl final(n:number)
-.decl flow(x:number, y:number)
-.decl correct_usage(n:number)
-.decl incorrect_usage(n:number)
-.decl label(l:number)
-.decl variable(v:symbol)
-.input final
-.input call    
-.input flow
-.input label     
-.input variable
-.output correct_usage
+.decl reach_no_call(from:number, to:number, v:symbol) .decl call(f:symbol,
+node:number, v:symbol) .decl final(n:number) .decl flow(x:number, y:number)
+.decl correct_usage(n:number) .decl incorrect_usage(n:number) .decl
+label(l:number) .decl variable(v:symbol) .input final .input call .input flow
+.input label .input variable .output correct_usage
 
 correct_usage(L) :-
-   call("open", L, _),
-   ! incorrect_usage(L),
-   label(L).
+   call("open", L, _), ! incorrect_usage(L), label(L).
 incorrect_usage(L) :-
-  call("open", L, V),
-  flow(L, L1),
-  final(F),
-  reach_no_call(L1, F, V).
+  call("open", L, V), flow(L, L1), final(F), reach_no_call(L1, F, V).
   
 reach_no_call(X, X, V) :-
-  label(X),
-  ! call("close", X, V),
-  variable(V).
+  label(X), ! call("close", X, V), variable(V).
 
 reach_no_call(X, Y, V) :-
-  ! call("close", X, V),
-  flow(X, Z),
-  reach_no_call(Z, Y, V).
+  ! call("close", X, V), flow(X, Z), reach_no_call(Z, Y, V).
 
-call("open", 1, "x").
-call("close", 4, "x").
-call("_symlog_symbolic_open", "_symlog_symbolic_2", "_symlog_symbolic_x").
+call("open", 1, "x").  call("close", 4, "x").  call("_symlog_symbolic_open",
+"_symlog_symbolic_2", "_symlog_symbolic_x").
 
-final(5).
-final("_symlog_symbolic_1").
-flow(1, 2).
-flow(2, 3).
-flow(3, 4).
-flow(4, 5).
-label(1).
-label(2).
-label(3).
-label(4).
-label(5).
+final(5).  final("_symlog_symbolic_1").  flow(1, 2).  flow(2, 3).  flow(3, 4).
+flow(4, 5).  label(1).  label(2).  label(3).  label(4).  label(5).
 variable("x").
     """
 
