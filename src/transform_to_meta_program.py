@@ -3,7 +3,7 @@ import common
 from souffle import collect, transform, parse, pprint, Variable, Literal, Rule, String, Number, Program
 import utils
 
-from typing import List, Dict, Set, Tuple, Optional, DefaultDict
+from typing import Any, List, Dict, Set, Tuple, Optional, DefaultDict
 import itertools
 from collections import defaultdict
 
@@ -22,15 +22,7 @@ def constr_pred_consts_lst_map(facts, f):
     return d
 
 
-def constr_loc_joined_locs_map(joined_locs, f):
-    d = defaultdict(set)
-    for k, v in list(map(f, joined_locs)):
-        if v:
-            d[k].add(v)
-    return d
-
-
-def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], Set[String | Number]]:
+def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String|Number]], Set[String|Number]]:
     """Analyse the constansts that symbolic constants in program `p` in principle attempt to unify with during evaluation."""
 
     rules = collect(p, lambda x: isinstance(x, Rule))
@@ -40,19 +32,19 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], 
     LocValuesDict = DefaultDict[Loc, Set[Value]]
     LocLocsDict = DefaultDict[Loc, Set[Loc]] 
 
-    def init_maps(rules: List[Rule]) -> Tuple[LocValuesDict, LocValuesDict, LocLocsDict]:
+    def init_maps(rules: List[Rule]) -> Tuple[LocValuesDict, LocValuesDict, LocLocsDict, LocLocsDict]:
 
-        loc_values_map: LocValuesDict = defaultdict(set) # {loc: set of values that variable at loc can take}
-        eloc_symvalues_map: LocValuesDict = defaultdict(set) # {loc in edb: set of symbolic values that variable at loc can take}
-        hloc_pos_blocs_map: DefaultDict[Loc, Set[Loc]] = defaultdict(set) # {loc in head: set of locs in body that share the same variable as loc in head}
-        symloc_unifiable_locs_map: DefaultDict[Loc, Set[Loc]] = defaultdict(set) # {loc of sym const in edb: set of locs where variables try to unified with sym const}
+        loc_values_map: LocValuesDict = defaultdict(set) # loc -> set of values that variable at loc can take
+        eloc_symvalues_map: LocValuesDict = defaultdict(set) # loc in edb -> set of symbolic values that variable at loc can take
+        hloc_pos_blocs_map: DefaultDict[Loc, Set[Loc]] = defaultdict(set) # loc in head -> set of locs in body that share the same variable as loc in head
+        symloc_unifiable_locs_map: DefaultDict[Loc, Set[Loc]] = defaultdict(set) # loc of sym const in edb -> set of locs where variables try to unified with sym const
 
         def var_in_pos_lit(arg: Variable|String|Number, lit: Literal) -> bool:
             if isinstance(arg, Variable) and arg in lit.args and lit.positive:
                 return True
             return False
 
-        def find_arg_at_loc(loc: Loc, rule: Rule) -> Optional[Loc]:
+        def find_arg_at_loc(loc: Loc, rule: Rule) -> Optional[String|Number|Variable]:
             pred_name, idx = loc
             for l in rule.body:
                 if l.name == pred_name:
@@ -87,7 +79,7 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], 
                         if isinstance(arg, String) or isinstance(arg, Number):
                             loc_values_map[(lit.name, i)].add(arg) # store loc, and corresp constant appearing in rules
 
-        # initilize loc_values_map, edbloc_symvalues_map, hloc_pos_blocs_map
+        # initilize loc_values_map, eloc_symvalues_map, hloc_pos_blocs_map
         for rule in rules:
             add_hloc_pos_blocs(rule) 
             add_loc_values(rule)
@@ -104,6 +96,7 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], 
         return loc_values_map, eloc_symvalues_map, hloc_pos_blocs_map, symloc_unifiable_locs_map
 
     def analyse_loc_values(loc_values_map: LocValuesDict, hloc_blocs_map: LocLocsDict) -> LocValuesDict:
+        """Analyse the values that variable at loc can take during evaluation."""
         is_changed = True
 
         while is_changed:
@@ -124,7 +117,6 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], 
         unifiable_consts_map = dict() # sym const -> set of consts that sym const attempt to unify with
 
         for loc, symvalues in eloc_symvalues_map.items():
-
             unifiable_consts_map[tuple(symvalues)] = set(
                 itertools.chain(*[loc_values_map[jloc] for jloc in symloc_unifiable_locs_map[loc]]))  # set of in principle to-be-joined constants
 
@@ -144,7 +136,7 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], 
     return unifiable_consts_map
 
 
-def construct_naive_domain_facts(p):
+def construct_naive_domain_facts(p: Program) -> List[Rule]:
 
     symbolic_consts = collect(p, lambda x: (isinstance(
         x, String)) and x.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX))
@@ -173,7 +165,7 @@ def construct_abstract_domain_facts(p):
     pass
 
 
-def transform_into_meta_program(p):
+def transform_into_meta_program(p: Program) -> Program:
     """Transform a Datalog program into the meta-Datalog program. E.g.,
 
     Original Datalog program: 
@@ -226,19 +218,19 @@ def transform_into_meta_program(p):
     binding_vars = [
         Variable(f"{common.BINDING_VARIABLE_PREFIX}{x.value}") for x in symbolic_consts]
 
-    def add_binding_vars_to_literal(l, binding_vars):
+    def add_binding_vars_to_literal(l: Literal, binding_vars: List[Variable]) -> Literal:
         return Literal(l.name, l.args + binding_vars, l.positive)
 
-    def binding_vars_of_pred(pred_name):
+    def binding_vars_of_pred(pred_name: str) -> List[Variable]:
         return [Variable(f"{common.BINDING_VARIABLE_PREFIX}{x.value}") for x in pred_sym_consts_map.get(pred_name, [])]
 
-    def add_domain_literal(sym_arg):
+    def add_domain_literal(sym_arg: String|Number) -> Literal:
         # E.g., domain_alpha(var_alpha)
         return Literal(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_arg.value}", [Variable(f"{common.BINDING_VARIABLE_PREFIX}{sym_arg.value}")], True)
 
-    def transform_declarations():
+    def transform_declarations() -> Dict[str, List[str]]:
 
-        def transform_declaration(n):
+        def transform_declaration(n: Rule) -> List[Tuple[Any, Any]]:
             if not n.body:
                 symbolic_consts_of_n_pred = pred_sym_consts_map.get(
                     n.head.name, [])
