@@ -174,22 +174,22 @@ def construct_abstract_domain_facts(p):
         symcstr_facts = []
         
         for (sym_const, equiv_partition) in itertools.product(sym_consts, equiv_partitions):
-            
+
             symconst_constr = ', '.join(construct_sym_constr(sym_const, equiv_partition))
-            
+
             symcstr_facts.append(construct_fact(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const.value}", [String(symconst_constr)]))
-        
+
         return symcstr_facts
 
     def construct_fact(pred_name, args):
         return Rule(Literal(pred_name, args, True), [])
 
     # domain facts for to-be-joined constants
-    def construct_unifiable_symconst_facts():
+    def construct_unifiable_facts():
         return [construct_fact(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const}", [const]) for sym_const, consts in symconst_unifiable_consts_map.items() for const in consts]
 
     sym_cstr_facts = construct_symcstr_facts()
-    unifiable_symconst_facts = construct_unifiable_symconst_facts()
+    unifiable_symconst_facts = construct_unifiable_facts()
 
     abstract_domain_facts = sym_cstr_facts + unifiable_symconst_facts
 
