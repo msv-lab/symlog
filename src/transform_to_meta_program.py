@@ -232,7 +232,7 @@ def construct_abstract_domain_facts(p: Program) -> List[Rule]:
         # divide the sym consts into equivalence classes: https://math.stackexchange.com/questions/703475/determine-the-number-of-equivalence-relations-on-the-set-1-2-3-4
         equiv_partitions = itertools.chain(
             *[multiset_partitions(sym_consts, k) for k in range(1, len
-            (sym_consts)-1)])  # end at len -1 because the case where all symbolic constants are mutually inequivalent is duplicated.
+            (sym_consts))])  # end at len -1 because the case where all symbolic constants are mutually inequivalent is duplicated.
 
         symcstr_facts = []
 
