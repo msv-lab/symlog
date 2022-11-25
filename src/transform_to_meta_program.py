@@ -160,26 +160,38 @@ def construct_abstract_domain_facts(p):
     sym_consts = collect(p, lambda x: isinstance(
         x, String) and x.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX))
 
-    def construct_sym_constr(sym_const, equiv_partition):
-        res = []
-        equiv_class_str = None
+    def construct_sym_cstr(sym_const, equiv_partition):
+        eq_relations = []
+        neq_relations = []
+        eqclass_of_symconst = None
+
         for equiv_class in equiv_partition:
             if sym_const in equiv_class:
-                equiv_class_str = common.DELIMITER.join(
-                    [sym.value for sym in sorted(equiv_class)])  # convert to string
+                eqclass_of_symconst = equiv_class
+                eq_relations.append(sorted(equiv_class, key=lambda x: x.value))
 
-                res.extend([sym_const.value + common.EQUAL +
-                           other_const.value for other_const in equiv_class if other_const != sym_const])
             else:
-                res.extend([sym_const.value + common.NOT_EQUAL +
-                           other_const.value for other_const in equiv_class if other_const != sym_const])
+                neq_relations.append(sorted(equiv_class, key=lambda x: x.value))
 
-        if equiv_class_str is None:
+        if eqclass_of_symconst is None:
             raise ValueError(
                 f"Symbolic constant {sym_const} is not in any equivalence class")
 
-        res.insert(0, equiv_class_str)
-        return res
+        def sort_and_to_string(eq_relations, neq_relations, eqclass_of_symconst):
+            eq_relations.sort()
+            neq_relations.sort()
+
+            str_relations = [str([eqc.value for eqc in equiv_rel]) for equiv_rel in eq_relations] + \
+                [common.EQ_NONEQ] + \
+                    [str([neqc.value for neqc in non_equiv_rel]) for non_equiv_rel in neq_relations]
+
+            str_eq_class = common.DELIMITER.join(
+                    [sym.value for sym in sorted(eqclass_of_symconst)])  # convert to string
+            
+            str_relations.insert(0, str_eq_class)
+            return str_relations
+
+        return sort_and_to_string(eq_relations, neq_relations, eqclass_of_symconst) 
 
     def construct_symcstr_facts():
         equiv_partitions = itertools.chain(
@@ -189,11 +201,11 @@ def construct_abstract_domain_facts(p):
 
         for (sym_const, equiv_partition) in itertools.product(sym_consts, equiv_partitions):
 
-            symconst_constr = common.DELIMITER.join(
-                construct_sym_constr(sym_const, equiv_partition))
+            symconst_cstr = common.DELIMITER.join(
+                construct_sym_cstr(sym_const, equiv_partition))
 
             symcstr_facts.append(construct_fact(
-                f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const.value}", [String(symconst_constr)]))
+                f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const.value}", [String(symconst_cstr)]))
 
         return symcstr_facts
 
