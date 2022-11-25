@@ -11,7 +11,8 @@ DEBUG = True
 
 
 def extract_pred_symbolic_consts(fact, symbolic_consts):
-    return fact.head.name, [arg for arg in fact.head.args if arg in symbolic_consts]
+    return fact.head.name, [arg for arg in fact.head.args if arg in 
+    symbolic_consts]
 
 
 def constr_pred_consts_lst_map(facts, f):
@@ -71,7 +72,8 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], 
             for i, arg in enumerate(rule.head.args):
                 hloc = (rule.head.name, i)
                 hloc_pos_blocs_map[hloc].update(set([(body_lit.name, body_lit.args.index(
-                    arg)) for body_lit in rule.body if var_in_pos_lit(arg, body_lit)]))  # only positive literals
+                    arg)) for body_lit in rule.body if var_in_pos_lit(arg, 
+                    body_lit)]))  # only positive literals
 
         def add_loc_values(rule: Rule) -> None:
             if not rule.body:
@@ -125,16 +127,17 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], 
 
         return loc_values_map
 
-    def construct_unifiable_consts_map(loc_values_map: LocValuesDict, 
-    eloc_symvalues_map: LocValuesDict, symloc_unifiable_locs_map: LocLocsDict) -> Dict[Tuple[Set[Value]], Set[Value]]:
+    def construct_unifiable_consts_map(loc_values_map: LocValuesDict,
+                                       eloc_symvalues_map: LocValuesDict, 
+                                       symloc_unifiable_locs_map: LocLocsDict) -> Dict[Tuple[Set[Value]], Set[Value]]:
 
         # sym const -> set of consts that sym const attempt to unify with
         unifiable_consts_map = dict()
 
         for loc, symvalues in eloc_symvalues_map.items():
             unifiable_consts_map[tuple(symvalues)] = set(
-                itertools.chain(*[loc_values_map[jloc] for jloc in 
-                symloc_unifiable_locs_map[loc]]))  # set of in principle to-be-joined constants
+                itertools.chain(*[loc_values_map[jloc] for jloc in
+                                  symloc_unifiable_locs_map[loc]]))  # set of in principle to-be-joined constants
 
         return unifiable_consts_map
 
@@ -149,8 +152,8 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], 
     if DEBUG:
         # print the loc values map
         print("\nloc_values_map: \n", "\n".join(
-            [f"{k} -> {set(map(lambda x: x.value, v))}" for k, v in 
-            init_loc_values_map.items()]))
+            [f"{k} -> {set(map(lambda x: x.value, v))}" for k, v in
+             init_loc_values_map.items()]))
 
     return unifiable_consts_map
 
@@ -180,12 +183,15 @@ def construct_naive_domain_facts(p: Program) -> List[Rule]:
     return const_facts
 
 
-def construct_abstract_domain_facts(p):
+def construct_abstract_domain_facts(p: Program) -> List[Rule]:
     symconst_unifiable_consts_map = analyse_symbolic_constants(p)
     sym_consts = collect(p, lambda x: isinstance(
         x, String) and x.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX))
 
-    def construct_sym_cstr(sym_const, equiv_partition):
+    def construct_fact(pred_name: str, args: List[String | Number]) -> Rule:
+        return Rule(Literal(pred_name, args, True), [])
+
+    def construct_sym_cstr(sym_const: String, equiv_partition: List[List[String]]) -> List[str]:
         eq_relations = []
         neq_relations = []
         eqclass_of_symconst = None
@@ -196,31 +202,37 @@ def construct_abstract_domain_facts(p):
                 eq_relations.append(sorted(equiv_class, key=lambda x: x.value))
 
             else:
-                neq_relations.append(sorted(equiv_class, key=lambda x: x.value))
+                neq_relations.append(
+                    sorted(equiv_class, key=lambda x: x.value))
 
         if eqclass_of_symconst is None:
             raise ValueError(
                 f"Symbolic constant {sym_const} is not in any equivalence class")
 
-        def sort_and_to_string(eq_relations, neq_relations, eqclass_of_symconst):
+        def sort_and_to_string(eq_relations: List[List[String]], neq_relations: List[List[String]], eqclass_of_symconst: List[String]) -> List[str]:
             eq_relations.sort()
             neq_relations.sort()
 
             str_relations = [str([eqc.value for eqc in equiv_rel]) for equiv_rel in eq_relations] + \
                 [common.EQ_NONEQ] + \
-                    [str([neqc.value for neqc in non_equiv_rel]) for non_equiv_rel in neq_relations]
+                [str([neqc.value for neqc in non_equiv_rel])
+                 for non_equiv_rel in neq_relations]
 
             str_eq_class = common.DELIMITER.join(
-                    [sym.value for sym in sorted(eqclass_of_symconst)])  # convert to string
-            
+                [sym.value for sym in sorted(eqclass_of_symconst)])
+
             str_relations.insert(0, str_eq_class)
             return str_relations
 
-        return sort_and_to_string(eq_relations, neq_relations, eqclass_of_symconst) 
+        return sort_and_to_string(eq_relations, neq_relations, eqclass_of_symconst)
 
-    def construct_symcstr_facts():
+    def construct_symcstr_facts() -> List[Rule]:
+        """Construct the facts of symbolic constraints."""
+
+        # divide the sym consts into equivalence classes: https://math.stackexchange.com/questions/703475/determine-the-number-of-equivalence-relations-on-the-set-1-2-3-4
         equiv_partitions = itertools.chain(
-            *[multiset_partitions(sym_consts, k) for k in range(1, len(sym_consts)-1)])  # end at len -1 because the case where all symbolic constants are mutually inequivalent is duplicated.
+            *[multiset_partitions(sym_consts, k) for k in range(1, len
+            (sym_consts)-1)])  # end at len -1 because the case where all symbolic constants are mutually inequivalent is duplicated.
 
         symcstr_facts = []
 
@@ -230,16 +242,16 @@ def construct_abstract_domain_facts(p):
                 construct_sym_cstr(sym_const, equiv_partition))
 
             symcstr_facts.append(construct_fact(
-                f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const.value}", [String(symconst_cstr)]))
+                f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const.value}", [String
+                (symconst_cstr)]))
 
         return symcstr_facts
 
-    def construct_fact(pred_name, args):
-        return Rule(Literal(pred_name, args, True), [])
-
     # domain facts for to-be-joined constants
-    def construct_unifiable_facts():
-        return [construct_fact(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const}", [const]) for sym_const, consts in symconst_unifiable_consts_map.items() for const in consts]
+    def construct_unifiable_facts() -> List[Rule]:
+        return [construct_fact(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const}", 
+        [const]) for sym_const, consts in symconst_unifiable_consts_map.items() 
+        for const in consts]
 
     sym_cstr_facts = construct_symcstr_facts()
     unifiable_symconst_facts = construct_unifiable_facts()
@@ -251,27 +263,36 @@ def construct_abstract_domain_facts(p):
 
 def transform_into_meta_program(p: Program) -> Program:
     """Transform a Datalog program into the meta-Datalog program. E.g.,
-
     Original Datalog program: 
-
-    r(x, x) :- n(x).  r(x, y) :- r(x, z), e(z, y).
-
-    e(1, 2).  e(alpha, beta).  n(1).  n(2).  n(gamma).
-
+    r(x, x) :- n(x).
+    r(x, y) :- r(x, z), e(z, y).
+    e(1, 2).
+    e(alpha, beta).
+    n(1).
+    n(2).
+    n(gamma).
     Transformed meta-Datalog program:
-
     r(x, x, t1, t2, t3) :-
-        n(x, t3), domain_alpha(t1), domain_beta(t2), domain_gamma(t3).
+        n(x, t3),
+        domain_alpha(t1),
+        domain_beta(t2),
+        domain_gamma(t3).
     r(x, y, t1, t2, t3) :-
-        r(x, z, t1, t2, t3), e(z, y, t1, t2), domain_alpha(t1), domain_beta(t2),
+        r(x, z, t1, t2, t3),
+        e(z, y, t1, t2),
+        domain_alpha(t1),
+        domain_beta(t2),
         domain_gamma(t3).
     e(1, 2, t1, t2) :-
-        domain_alpha(t1), domain_beta(t2).
+        domain_alpha(t1),
+        domain_beta(t2).
     e(t1, t2, t1, t2) :-
-        domain_alpha(t1), domain_beta(t2).
+        domain_alpha(t1),
+        domain_beta(t2).
     n(1, t3) :-
         domain_gamma(t3).
-    n(2, t3) :- domain_gamma(t3).  n(t3, t3) :-domain_gamma(t3).
+    n(2, t3) :- domain_gamma(t3).
+    n(t3, t3) :-domain_gamma(t3).
     """
 
     symbolic_consts = collect(p, lambda x: (isinstance(
@@ -286,19 +307,20 @@ def transform_into_meta_program(p: Program) -> Program:
     edb_names = list(map(lambda x: x.head.name, facts))
 
     binding_vars = [
-        Variable(f"{common.BINDING_VARIABLE_PREFIX}{x.value}") for x in 
+        Variable(f"{common.BINDING_VARIABLE_PREFIX}{x.value}") for x in
         symbolic_consts]
 
     def add_binding_vars_to_literal(l: Literal, binding_vars: List[Variable]) -> Literal:
         return Literal(l.name, l.args + binding_vars, l.positive)
 
     def binding_vars_of_pred(pred_name: str) -> List[Variable]:
-        return [Variable(f"{common.BINDING_VARIABLE_PREFIX}{x.value}") for x in pred_sym_consts_map.get(pred_name, [])]
+        return [Variable(f"{common.BINDING_VARIABLE_PREFIX}{x.value}") for x in 
+        pred_sym_consts_map.get(pred_name, [])]
 
     def add_domain_literal(sym_arg: String | Number) -> Literal:
         # E.g., domain_alpha(var_alpha)
-        return Literal(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_arg.value}", 
-        [Variable(f"{common.BINDING_VARIABLE_PREFIX}{sym_arg.value}")], True)
+        return Literal(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_arg.value}",
+                       [Variable(f"{common.BINDING_VARIABLE_PREFIX}{sym_arg.value}")], True)
 
     def transform_declarations() -> Dict[str, List[str]]:
 
@@ -321,7 +343,9 @@ def transform_into_meta_program(p: Program) -> Program:
             else:
                 # IDB head declaration
                 return [(n.head.name, p.declarations[n.head.name] + [common.
-                DEFAULT_SOUFFLE_TYPE] * len(binding_vars))]
+                                                                     DEFAULT_SOUFFLE_TYPE] 
+                                                                     * len
+                                                                     (binding_vars))]
 
         rules = collect(p, lambda x: isinstance(x, Rule))
 
@@ -335,7 +359,7 @@ def transform_into_meta_program(p: Program) -> Program:
             if not n.body:
                 # fact
                 replaced = transform(
-                    n.head, lambda x: Variable(f"{common.BINDING_VARIABLE_PREFIX}{x.value}") if x in symbolic_consts 
+                    n.head, lambda x: Variable(f"{common.BINDING_VARIABLE_PREFIX}{x.value}") if x in symbolic_consts
                     else x)
 
                 domain_body = [add_domain_literal(
@@ -345,8 +369,9 @@ def transform_into_meta_program(p: Program) -> Program:
             else:
                 # rule
                 replaced_head = transform(n.head, lambda x:
-                add_binding_vars_to_literal(
-                    x, binding_vars) if isinstance(x, Literal) else x)
+                                          add_binding_vars_to_literal(
+                                              x, binding_vars) if isinstance(x, 
+                                              Literal) else x)
 
                 replaced_body = list(map(lambda l: transform(l, lambda x: add_binding_vars_to_literal(x, binding_vars_of_pred(
                     x.name) if x.name in edb_names else binding_vars) if
@@ -367,28 +392,52 @@ def transform_into_meta_program(p: Program) -> Program:
 if __name__ == "__main__":
 
     program_text = """
-.decl reach_no_call(from:number, to:number, v:symbol) .decl call(f:symbol,
-node:number, v:symbol) .decl final(n:number) .decl flow(x:number, y:number)
-.decl correct_usage(n:number) .decl incorrect_usage(n:number) .decl
-label(l:number) .decl variable(v:symbol) .input final .input call .input flow
-.input label .input variable .output correct_usage
-
+.decl reach_no_call(from:number, to:number, v:symbol)
+.decl call(f:symbol, node:number, v:symbol)
+.decl final(n:number)
+.decl flow(x:number, y:number)
+.decl correct_usage(n:number)
+.decl incorrect_usage(n:number)
+.decl label(l:number)
+.decl variable(v:symbol)
+.input final
+.input call    
+.input flow
+.input label     
+.input variable
+.output correct_usage
 correct_usage(L) :-
-   call("open", L, _), ! incorrect_usage(L), label(L).
+   call("open", L, _),
+   ! incorrect_usage(L),
+   label(L).
 incorrect_usage(L) :-
-  call("open", L, V), flow(L, L1), final(F), reach_no_call(L1, F, V).
+  call("open", L, V),
+  flow(L, L1),
+  final(F),
+  reach_no_call(L1, F, V).
   
 reach_no_call(X, X, V) :-
-  label(X), ! call("close", X, V), variable(V).
-
+  label(X),
+  ! call("close", X, V),
+  variable(V).
 reach_no_call(X, Y, V) :-
-  ! call("close", X, V), flow(X, Z), reach_no_call(Z, Y, V).
-
-call("open", 1, "x").  call("close", 4, "x").  call("_symlog_symbolic_open",
-"_symlog_symbolic_2", "_symlog_symbolic_x").
-
-final(5).  final("_symlog_symbolic_1").  flow(1, 2).  flow(2, 3).  flow(3, 4).
-flow(4, 5).  label(1).  label(2).  label(3).  label(4).  label(5).
+  ! call("close", X, V),
+  flow(X, Z),
+  reach_no_call(Z, Y, V).
+call("open", 1, "x").
+call("close", 4, "x").
+call("_symlog_symbolic_open", "_symlog_symbolic_2", "_symlog_symbolic_x").
+final(5).
+final("_symlog_symbolic_1").
+flow(1, 2).
+flow(2, 3).
+flow(3, 4).
+flow(4, 5).
+label(1).
+label(2).
+label(3).
+label(4).
+label(5).
 variable("x").
     """
 
