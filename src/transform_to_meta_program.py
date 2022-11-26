@@ -11,8 +11,8 @@ DEBUG = True
 
 
 def extract_pred_symbolic_consts(fact, symbolic_consts):
-    return fact.head.name, [arg for arg in fact.head.args if arg in 
-    symbolic_consts]
+    return fact.head.name, [arg for arg in fact.head.args if arg in
+                            symbolic_consts]
 
 
 def constr_pred_consts_lst_map(facts, f):
@@ -72,8 +72,9 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], 
             for i, arg in enumerate(rule.head.args):
                 hloc = (rule.head.name, i)
                 hloc_pos_blocs_map[hloc].update(set([(body_lit.name, body_lit.args.index(
-                    arg)) for body_lit in rule.body if var_in_pos_lit(arg, 
-                    body_lit)]))  # only positive literals
+                    arg)) for body_lit in rule.body if var_in_pos_lit(arg,
+                                                                      body_lit)]
+                                                                      ))  # only positive literals
 
         def add_loc_values(rule: Rule) -> None:
             if not rule.body:
@@ -128,7 +129,7 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], 
         return loc_values_map
 
     def construct_unifiable_consts_map(loc_values_map: LocValuesDict,
-                                       eloc_symvalues_map: LocValuesDict, 
+                                       eloc_symvalues_map: LocValuesDict,
                                        symloc_unifiable_locs_map: LocLocsDict) -> Dict[Tuple[Set[Value]], Set[Value]]:
 
         # sym const -> set of consts that sym const attempt to unify with
@@ -155,6 +156,9 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], 
             [f"{k} -> {set(map(lambda x: x.value, v))}" for k, v in
              init_loc_values_map.items()]))
 
+        print("\n symconsts_unifiable_consts_map: \n" +
+              '\n'.join([f"{','.join([i.value for i in k])} -> {[i.value for i in v]}" for k, v in unifiable_consts_map.items()]))
+
     return unifiable_consts_map
 
 
@@ -178,13 +182,14 @@ def construct_naive_domain_facts(p: Program) -> List[Rule]:
     for pred_name in pred_sym_consts_list_map.keys():
         for sym_consts, consts in itertools.product(pred_sym_consts_list_map[pred_name], pred_consts_list_map[pred_name]):
             const_facts.extend([construct_fact(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const.value}", [
-                               const]) for (const, sym_const) in zip(consts, sym_consts)])
+                               const]) for (const, sym_const) in zip(consts, 
+                               sym_consts)])
 
     return const_facts
 
 
 def construct_abstract_domain_facts(p: Program) -> List[Rule]:
-    symconst_unifiable_consts_map = analyse_symbolic_constants(p)
+
     sym_consts = collect(p, lambda x: isinstance(
         x, String) and x.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX))
 
@@ -194,47 +199,43 @@ def construct_abstract_domain_facts(p: Program) -> List[Rule]:
     def construct_sym_cstr(sym_const: String, equiv_partition: List[List[String]]) -> List[str]:
         eq_relations = []
         neq_relations = []
-        eqclass_of_symconst = None
 
         for equiv_class in equiv_partition:
             if sym_const in equiv_class:
-                eqclass_of_symconst = equiv_class
                 eq_relations.append(sorted(equiv_class, key=lambda x: x.value))
 
             else:
                 neq_relations.append(
                     sorted(equiv_class, key=lambda x: x.value))
 
-        if eqclass_of_symconst is None:
-            raise ValueError(
-                f"Symbolic constant {sym_const} is not in any equivalence class")
-
-        def sort_and_to_string(eq_relations: List[List[String]], neq_relations: List[List[String]], eqclass_of_symconst: List[String]) -> List[str]:
+        def sort_and_to_string(eq_relations: List[List[String]], neq_relations: List[List[String]]) -> List[str]:
             eq_relations.sort()
             neq_relations.sort()
 
-            str_relations = [str([eqc.value for eqc in equiv_rel]) for equiv_rel in eq_relations] + \
+            str_relations = [utils.list_to_str([eqc.value for eqc in eq_rel]) for eq_rel in eq_relations] + \
                 [common.EQ_NONEQ] + \
-                [str([neqc.value for neqc in non_equiv_rel])
-                 for non_equiv_rel in neq_relations]
+                [utils.list_to_str([neqc.value for neqc in neq_rel])
+                 for neq_rel in neq_relations]
 
-            str_eq_class = common.DELIMITER.join(
-                [sym.value for sym in sorted(eqclass_of_symconst)])
-
-            str_relations.insert(0, str_eq_class)
             return str_relations
 
-        return sort_and_to_string(eq_relations, neq_relations, eqclass_of_symconst)
+        return sort_and_to_string(eq_relations, neq_relations)
 
-    def construct_symcstr_facts() -> List[Rule]:
+    def construct_symcstr_facts() -> List[Rule] | List[Any]:
         """Construct the facts of symbolic constraints."""
 
-        # divide the sym consts into equivalence classes: https://math.stackexchange.com/questions/703475/determine-the-number-of-equivalence-relations-on-the-set-1-2-3-4
-        equiv_partitions = itertools.chain(
-            *[multiset_partitions(sym_consts, k) for k in range(1, len
-            (sym_consts))])  # end at len -1 because the case where all symbolic constants are mutually inequivalent is duplicated.
-
         symcstr_facts = []
+
+        # divide the sym consts into equivalence classes:
+        # https://math.stackexchange.com/questions/703475/determine-the-number-of-equivalence-relations-on-the-set-1-2-3-4
+
+        if not len(sym_consts):  # no symbolic constants
+            return symcstr_facts
+        elif len(sym_consts) == 1:
+            equiv_partitions = multiset_partitions(sym_consts, 1)
+        else:
+            equiv_partitions = list(multiset_partitions(
+                sym_consts, 1)) + list(multiset_partitions(sym_consts, 2))
 
         for (sym_const, equiv_partition) in itertools.product(sym_consts, equiv_partitions):
 
@@ -243,20 +244,52 @@ def construct_abstract_domain_facts(p: Program) -> List[Rule]:
 
             symcstr_facts.append(construct_fact(
                 f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const.value}", [String
-                (symconst_cstr)]))
+                                                                       (symconst_cstr)]))
 
         return symcstr_facts
 
     # domain facts for to-be-joined constants
     def construct_unifiable_facts() -> List[Rule]:
-        return [construct_fact(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const}", 
-        [const]) for sym_const, consts in symconst_unifiable_consts_map.items() 
-        for const in consts]
+        symconsts_unifiable_consts_map = analyse_symbolic_constants(p)
+        unifiable_facts = []
+
+        for symconsts, consts in symconsts_unifiable_consts_map.items():
+            for symconst, const in itertools.product(symconsts, consts):
+                unifiable_facts.append(construct_fact(
+                    f"{common.DOMAIN_PREDICATE_PREFIX}{symconst.value}", [const]))
+
+        return unifiable_facts
 
     sym_cstr_facts = construct_symcstr_facts()
     unifiable_symconst_facts = construct_unifiable_facts()
 
     abstract_domain_facts = sym_cstr_facts + unifiable_symconst_facts
+
+    if DEBUG:
+        print("\nsym_cstr_facts in program: \n", "\n".join(
+            [str(fact) for fact in sym_cstr_facts]))
+
+        print("\nsym_cstr_facts in human readable format: ")
+        for fact in sym_cstr_facts:
+            sym_const = fact.head.name.split(common.DOMAIN_PREDICATE_PREFIX)[1]
+            str_cstr = fact.head.args[0].value
+
+            str_eq_cstr, str_neq_cstr = str_cstr.split(common.EQ_NONEQ)
+
+            str_eq_cstr = str_eq_cstr[str_eq_cstr.find(
+                common.LEFT_SQUARE_BRACKET)+1:str_eq_cstr.find(common.RIGHT_SQUARE_BRACKET)].strip()
+
+            str_neq_cstr = str_neq_cstr[str_neq_cstr.find(
+                common.LEFT_SQUARE_BRACKET)+1:str_neq_cstr.find(common.RIGHT_SQUARE_BRACKET)].strip()
+
+            human_readable_eqcstr = [sym_const + common.EQUAL + cstr for cstr in str_eq_cstr.split(
+                common.DELIMITER) if cstr != sym_const and cstr != '']
+
+            human_readable_neqcstr = [sym_const + common.NOT_EQUAL + cstr for cstr in str_neq_cstr.split(
+                common.DELIMITER) if cstr != sym_const and cstr != '']
+
+            print(
+                f"{fact.head.name}({sym_const}, {common.DELIMITER.join(human_readable_eqcstr + human_readable_neqcstr)})")
 
     return abstract_domain_facts
 
@@ -314,8 +347,8 @@ def transform_into_meta_program(p: Program) -> Program:
         return Literal(l.name, l.args + binding_vars, l.positive)
 
     def binding_vars_of_pred(pred_name: str) -> List[Variable]:
-        return [Variable(f"{common.BINDING_VARIABLE_PREFIX}{x.value}") for x in 
-        pred_sym_consts_map.get(pred_name, [])]
+        return [Variable(f"{common.BINDING_VARIABLE_PREFIX}{x.value}") for x in
+                pred_sym_consts_map.get(pred_name, [])]
 
     def add_domain_literal(sym_arg: String | Number) -> Literal:
         # E.g., domain_alpha(var_alpha)
@@ -343,9 +376,9 @@ def transform_into_meta_program(p: Program) -> Program:
             else:
                 # IDB head declaration
                 return [(n.head.name, p.declarations[n.head.name] + [common.
-                                                                     DEFAULT_SOUFFLE_TYPE] 
-                                                                     * len
-                                                                     (binding_vars))]
+                                                                     DEFAULT_SOUFFLE_TYPE]
+                         * len
+                         (binding_vars))]
 
         rules = collect(p, lambda x: isinstance(x, Rule))
 
@@ -370,8 +403,8 @@ def transform_into_meta_program(p: Program) -> Program:
                 # rule
                 replaced_head = transform(n.head, lambda x:
                                           add_binding_vars_to_literal(
-                                              x, binding_vars) if isinstance(x, 
-                                              Literal) else x)
+                                              x, binding_vars) if isinstance(x,
+                                                                             Literal) else x)
 
                 replaced_body = list(map(lambda l: transform(l, lambda x: add_binding_vars_to_literal(x, binding_vars_of_pred(
                     x.name) if x.name in edb_names else binding_vars) if
@@ -451,9 +484,5 @@ variable("x").
 
     transformed.rules.extend(facts + abstract_facts)
 
+    print("\nTransformed program:")
     print(pprint(transformed))
-
-    symconst_unifiable_consts_map = analyse_symbolic_constants(program)
-
-    print("\n symconst_unifiable_consts_map: \n" +
-          '\n'.join([f"{','.join([i.value for i in k])} -> {[i.value for i in v]}" for k, v in symconst_unifiable_consts_map.items()]))
