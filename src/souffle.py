@@ -123,7 +123,7 @@ def pprint(program):
         
     def pprint_unification(u):
         op = "=" if u.positive else "!="
-        return f"{u.left} {op} {u.right}"
+        return f"{pprint_term(u.left)} {op} {pprint_term(u.right)}"
     
     result = ""
 

@@ -1,5 +1,5 @@
 import common
-from souffle import collect, transform, parse, pprint, Variable, Literal, Rule, String, Number, Program
+from souffle import Unification, collect, transform, parse, pprint, Variable, Literal, Rule, String, Number, Program
 import utils
 
 from typing import Any, List, Dict, Set, Tuple, Optional, DefaultDict
@@ -21,6 +21,82 @@ def constr_pred_consts_lst_map(facts, f):
         if v:
             d[k].append(v)
     return d
+
+
+def transform_and_partition_facts(p: Program, num: int) -> List[Rule]:
+    """Transforms and partitions facts into blocks.
+
+    Args:
+        p: The Datalog program.
+        num: The number of blocks that facts to be partitioned to.
+
+    Returns:
+        A list of the partitioned facts.
+    """
+
+    facts = collect(p, lambda x: isinstance(x, Rule) and not x.body)
+    fact_blocks = utils.split_to_chunks(facts, num)
+
+    def add_args_to_fact(fact, args):
+        return Rule(Literal(fact.head.name, fact.head.args + args, True), [])
+
+    for bno, fact_block in enumerate(fact_blocks):
+        id_args = [Number(0 if i != bno else 1) for i in range(num)]
+        fact_blocks[bno] = [add_args_to_fact(fact, id_args) for fact in fact_block]
+
+    return fact_blocks
+
+def transform_for_recording_facts(p: Program, num: int) -> Program:
+    """Transforms a program to a program that can record facts.
+
+    This transformation is used to make the given program can record facts in a manner of adding new arguments to the head of each rule. The new arguments are used to record the facts.
+
+    Args:
+        p: The program to transform.
+        num: The number of blocks that facts to be partitioned to.
+
+    Returns:
+        A program that records facts.
+    """
+
+    def add_record_args(literal: Literal) -> Literal:
+        # TODO: Actually, the program for finding all paths should not contain negative literals. Let's keep this for now.
+        return Literal(literal.name, literal.args + [Variable(f"{literal.name}{common.RECORD_ARG_PREFIX}{i}") for i in range(1, 1 + num)], literal.positive)
+
+    def add_record_components(n: Any) -> Any:
+        if isinstance(n, Rule) and n.body:
+            rule = n
+
+            head_record_args = [Variable(f"{rule.head.name}{common.RECORD_ARG_PREFIX}{i}") for i in range(1, 1 + num)]
+
+            body_record_argnames_list = [[f"{literal.name}{common.RECORD_ARG_PREFIX}{i}" for literal in rule.body] for i in range(1, 1 + num)] # store record args in columns (instead of rows)
+
+            unifications = []
+            for hrarg, brargnames in zip(head_record_args, body_record_argnames_list):
+                unifications.append(Unification(hrarg, Variable(common.SOUFFLE_LOGICAL_OR.join(brargnames)), True))
+
+            return Rule(add_record_args(rule.head), [add_record_args(literal) for literal in rule.body] + unifications)
+
+        return n
+
+    def add_args_to_fact(fact, args):
+        return Rule(Literal(fact.head.name, [a for a in fact.head.args] + args, True), [])
+
+    facts = collect(p, lambda x: isinstance(x, Rule) and not x.body)
+    fact_blocks = utils.split_to_chunks(facts, num)
+
+    # remove old facts
+    for f in facts:
+        p.rules.remove(f) 
+
+    for bno, fact_block in enumerate(fact_blocks):
+        id_args = [Number(0 if i != bno else 1) for i in range(num)]
+        fact_blocks[bno] = [add_args_to_fact(fact, id_args) for fact in fact_block]
+
+    transformed = transform(p, add_record_components)
+    transformed.rules.extend(itertools.chain(*fact_blocks)) # add transformed facts
+
+    return transformed
 
 
 def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], Set[String | Number]]:
@@ -68,16 +144,16 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], 
 
         def add_hloc_pos_blocs(rule: Rule) -> None:
             if not rule.body:
-                return
+                return  # skip facts.
             for i, arg in enumerate(rule.head.args):
                 hloc = (rule.head.name, i)
                 hloc_pos_blocs_map[hloc].update(set([(body_lit.name, body_lit.args.index(
                     arg)) for body_lit in rule.body if var_in_pos_lit(arg,
                                                                       body_lit)]
-                                                                      ))  # only positive literals
+                ))  # only positive literals
 
         def add_loc_values(rule: Rule) -> None:
-            if not rule.body:
+            if not rule.body:  # rule is a fact.
                 for i, arg in enumerate(rule.head.args):
                     # store loc, and corresp value in fact
                     loc_values_map[(rule.head.name, i)].add(arg)
@@ -86,7 +162,7 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], 
                     # loc_symvalues_map
                     if isinstance(arg, String) and arg.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX):
                         eloc_symvalues_map[(rule.head.name, i)].add(arg)
-            else:
+            else:  # rule is a ordinary rule.
                 for lit in [rule.head] + list(rule.body):
                     for i, arg in enumerate(lit.args):
                         if isinstance(arg, String) or isinstance(arg, Number):
@@ -105,7 +181,7 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], 
                 if arg_at_loc is None:
                     continue
                 unifiable_locs = find_unifiable_locs_of_arg(
-                    arg_at_loc, rule.body) - set([loc])
+                    arg_at_loc, rule.body) - set([loc])  # exclude loc of arg itself
                 symloc_unifiable_locs_map[loc].update(unifiable_locs)
 
         return loc_values_map, eloc_symvalues_map, hloc_pos_blocs_map, symloc_unifiable_locs_map
@@ -156,7 +232,7 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], 
             [f"{k} -> {set(map(lambda x: x.value, v))}" for k, v in
              init_loc_values_map.items()]))
 
-        print("\n symconsts_unifiable_consts_map: \n" +
+        print("\nsymconsts_unifiable_consts_map: \n" +
               '\n'.join([f"{','.join([i.value for i in k])} -> {[i.value for i in v]}" for k, v in unifiable_consts_map.items()]))
 
     return unifiable_consts_map
@@ -182,8 +258,8 @@ def construct_naive_domain_facts(p: Program) -> List[Rule]:
     for pred_name in pred_sym_consts_list_map.keys():
         for sym_consts, consts in itertools.product(pred_sym_consts_list_map[pred_name], pred_consts_list_map[pred_name]):
             const_facts.extend([construct_fact(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const.value}", [
-                               const]) for (const, sym_const) in zip(consts, 
-                               sym_consts)])
+                               const]) for (const, sym_const) in zip(consts,
+                                                                     sym_consts)])
 
     return const_facts
 
@@ -387,7 +463,7 @@ def transform_into_meta_program(p: Program) -> Program:
 
         return transformed_declarations
 
-    def add_binding_vars(n):
+    def add_binding_vars(n: Any) -> Any:
         if isinstance(n, Rule):
             if not n.body:
                 # fact
@@ -485,4 +561,8 @@ variable("x").
     transformed.rules.extend(facts + abstract_facts)
 
     print("\nTransformed program:")
+    print(pprint(transformed))
+
+    transformed = transform_for_recording_facts(program, 2)
+    print("\nTransformed program that can record facts:")
     print(pprint(transformed))
