@@ -23,7 +23,7 @@ def constr_pred_consts_lst_map(facts, f):
     return d
 
 
-def transform_for_recording_facts(p: Program, num: int, fact_names) -> Program:
+def transform_for_recording_facts(p: Program, num: int, fact_heads: List[Literal]) -> Program:
     """Transforms a program to a program that can record facts.
 
     This transformation is used to make the given program can record facts in a manner of adding new arguments to the head of each rule. The new arguments are used to record the facts.
@@ -31,17 +31,16 @@ def transform_for_recording_facts(p: Program, num: int, fact_names) -> Program:
     Args:
         p: The program to transform.
         num: The number of blocks that facts to be partitioned to.
+        fact_heads: The heads of facts to be partitioned.
 
     Returns:
         A program that records facts.
     """
 
-    # collect fact heads which are no longer 'facts' after transform_into_meta_program
-    fact_heads = [fact.head for fact in collect(p, lambda x: isinstance(x, Rule) and x.head.name in fact_names and x.body)]
-
     fact_head_blocks = utils.split_into_chunks(fact_heads, num)
 
-    fact_head_id_map = {utils.hash_literal(fact_head): [0 if i != bno else 1 for i in range(num)] for bno, fact_block in enumerate(fact_head_blocks) for fact_head in fact_block}
+    fact_head_id_map = {utils.hash_literal(fact_head): [0 if i != bno else 1 for i in range(
+        num)] for bno, fact_block in enumerate(fact_head_blocks) for fact_head in fact_block}
 
     def add_record_args(literal: Literal) -> Literal:
         return Literal(literal.name, literal.args + [Variable(f"{literal.name}{common.RECORD_ARG_PREFIX}{i}") for i in range(1, 1 + num)], literal.positive)
@@ -55,13 +54,17 @@ def transform_for_recording_facts(p: Program, num: int, fact_names) -> Program:
             head_hash = utils.hash_literal(rule.head)
             if head_hash not in fact_head_id_map:
 
-                head_record_args = [Variable(f"{rule.head.name}{common.RECORD_ARG_PREFIX}{i}") for i in range(1, 1 + num)]
+                head_record_args = [Variable(
+                    f"{rule.head.name}{common.RECORD_ARG_PREFIX}{i}") for i in range(1, 1 + num)]
 
-                body_record_argnames_list = [[f"{literal.name}{common.RECORD_ARG_PREFIX}{i}" for literal in rule.body if not literal.name.startswith(common.DOMAIN_PREDICATE_PREFIX) and literal.positive] for i in range(1, 1 + num)] # store record args in columns (instead of rows) # TODO: The program for finding all paths should not contain negative literals. Let's keep this for now.
+                # store record args in columns (instead of rows) 
+                # TODO: The program for finding all paths should not contain negative literals. Let's keep this for now.
+                body_record_argnames_list = [[f"{literal.name}{common.RECORD_ARG_PREFIX}{i}" for literal in rule.body if not literal.name.startswith(
+                    common.DOMAIN_PREDICATE_PREFIX) and literal.positive] for i in range(1, 1 + num)]
 
-                unifications = []
-                for hrarg, brargnames in zip(head_record_args, body_record_argnames_list):
-                    unifications.append(Unification(hrarg, Variable(common.SOUFFLE_LOGICAL_OR.join(brargnames)), True))
+                # construct unifications, e.g., t1 = t1'|t1'' ...
+                unifications = [Unification(hrarg, Variable(common.SOUFFLE_LOGICAL_OR.join(
+                    brargnames)), True) for hrarg, brargnames in zip(head_record_args, body_record_argnames_list)]
 
                 return Rule(add_record_args(rule.head), [add_record_args(literal) for literal in rule.body] + unifications)
 
@@ -70,9 +73,7 @@ def transform_for_recording_facts(p: Program, num: int, fact_names) -> Program:
 
         return n
 
-    transformed = transform(p, add_record_components)
-
-    return transformed
+    return transform(p, add_record_components)
 
 
 def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], Set[String | Number]]:
@@ -529,7 +530,8 @@ variable("x").
     program = parse(program_text)
 
     # collect original fact names
-    fact_names = list(map(lambda x: x.head.name, collect(program, lambda x: isinstance(x, Rule) and not x.body)))
+    fact_names = list(map(lambda x: x.head.name, collect(
+        program, lambda x: isinstance(x, Rule) and not x.body)))
 
     transformed = transform_into_meta_program(program)
 
@@ -539,9 +541,10 @@ variable("x").
 
     transformed.rules.extend(facts + abstract_facts)
 
-    # print("\nTransformed program:")
-    # print(pprint(transformed))
+    # collect fact heads which are no longer 'facts' after transform_into_meta_program
+    fact_heads = [fact.head for fact in collect(transformed, lambda x: isinstance(
+        x, Rule) and x.head.name in fact_names and x.body)]
 
-    transformed = transform_for_recording_facts(transformed, 2, fact_names)
+    transformed = transform_for_recording_facts(transformed, 2, fact_heads)
     print("\nTransformed program that can record facts:")
     print(pprint(transformed))
