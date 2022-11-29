@@ -23,30 +23,7 @@ def constr_pred_consts_lst_map(facts, f):
     return d
 
 
-def transform_and_partition_facts(p: Program, num: int) -> List[Rule]:
-    """Transforms and partitions facts into blocks.
-
-    Args:
-        p: The Datalog program.
-        num: The number of blocks that facts to be partitioned to.
-
-    Returns:
-        A list of the partitioned facts.
-    """
-
-    facts = collect(p, lambda x: isinstance(x, Rule) and not x.body)
-    fact_blocks = utils.split_to_chunks(facts, num)
-
-    def add_args_to_fact(fact, args):
-        return Rule(Literal(fact.head.name, fact.head.args + args, True), [])
-
-    for bno, fact_block in enumerate(fact_blocks):
-        id_args = [Number(0 if i != bno else 1) for i in range(num)]
-        fact_blocks[bno] = [add_args_to_fact(fact, id_args) for fact in fact_block]
-
-    return fact_blocks
-
-def transform_for_recording_facts(p: Program, num: int) -> Program:
+def transform_for_recording_facts(p: Program, num: int, fact_names) -> Program:
     """Transforms a program to a program that can record facts.
 
     This transformation is used to make the given program can record facts in a manner of adding new arguments to the head of each rule. The new arguments are used to record the facts.
@@ -59,42 +36,41 @@ def transform_for_recording_facts(p: Program, num: int) -> Program:
         A program that records facts.
     """
 
+    # collect fact heads which are no longer 'facts' after transform_into_meta_program
+    fact_heads = [fact.head for fact in collect(p, lambda x: isinstance(x, Rule) and x.head.name in fact_names and x.body)]
+
+    fact_head_blocks = utils.split_into_chunks(fact_heads, num)
+
+    fact_head_id_map = {utils.hash_literal(fact_head): [0 if i != bno else 1 for i in range(num)] for bno, fact_block in enumerate(fact_head_blocks) for fact_head in fact_block}
+
     def add_record_args(literal: Literal) -> Literal:
-        # TODO: Actually, the program for finding all paths should not contain negative literals. Let's keep this for now.
         return Literal(literal.name, literal.args + [Variable(f"{literal.name}{common.RECORD_ARG_PREFIX}{i}") for i in range(1, 1 + num)], literal.positive)
+
+    def add_id_args(literal: Literal, id_args: List[int]) -> Literal:
+        return Literal(literal.name, literal.args + [Number(id_arg) for id_arg in id_args], literal.positive)
 
     def add_record_components(n: Any) -> Any:
         if isinstance(n, Rule) and n.body:
             rule = n
+            head_hash = utils.hash_literal(rule.head)
+            if head_hash not in fact_head_id_map:
 
-            head_record_args = [Variable(f"{rule.head.name}{common.RECORD_ARG_PREFIX}{i}") for i in range(1, 1 + num)]
+                head_record_args = [Variable(f"{rule.head.name}{common.RECORD_ARG_PREFIX}{i}") for i in range(1, 1 + num)]
 
-            body_record_argnames_list = [[f"{literal.name}{common.RECORD_ARG_PREFIX}{i}" for literal in rule.body] for i in range(1, 1 + num)] # store record args in columns (instead of rows)
+                body_record_argnames_list = [[f"{literal.name}{common.RECORD_ARG_PREFIX}{i}" for literal in rule.body if not literal.name.startswith(common.DOMAIN_PREDICATE_PREFIX) and literal.positive] for i in range(1, 1 + num)] # store record args in columns (instead of rows) # TODO: The program for finding all paths should not contain negative literals. Let's keep this for now.
 
-            unifications = []
-            for hrarg, brargnames in zip(head_record_args, body_record_argnames_list):
-                unifications.append(Unification(hrarg, Variable(common.SOUFFLE_LOGICAL_OR.join(brargnames)), True))
+                unifications = []
+                for hrarg, brargnames in zip(head_record_args, body_record_argnames_list):
+                    unifications.append(Unification(hrarg, Variable(common.SOUFFLE_LOGICAL_OR.join(brargnames)), True))
 
-            return Rule(add_record_args(rule.head), [add_record_args(literal) for literal in rule.body] + unifications)
+                return Rule(add_record_args(rule.head), [add_record_args(literal) for literal in rule.body] + unifications)
+
+            else:
+                return Rule(add_id_args(rule.head, fact_head_id_map[head_hash]), rule.body)
 
         return n
 
-    def add_args_to_fact(fact, args):
-        return Rule(Literal(fact.head.name, [a for a in fact.head.args] + args, True), [])
-
-    facts = collect(p, lambda x: isinstance(x, Rule) and not x.body)
-    fact_blocks = utils.split_to_chunks(facts, num)
-
-    # remove old facts
-    for f in facts:
-        p.rules.remove(f) 
-
-    for bno, fact_block in enumerate(fact_blocks):
-        id_args = [Number(0 if i != bno else 1) for i in range(num)]
-        fact_blocks[bno] = [add_args_to_fact(fact, id_args) for fact in fact_block]
-
     transformed = transform(p, add_record_components)
-    transformed.rules.extend(itertools.chain(*fact_blocks)) # add transformed facts
 
     return transformed
 
@@ -552,6 +528,9 @@ variable("x").
 
     program = parse(program_text)
 
+    # collect original fact names
+    fact_names = list(map(lambda x: x.head.name, collect(program, lambda x: isinstance(x, Rule) and not x.body)))
+
     transformed = transform_into_meta_program(program)
 
     facts = construct_naive_domain_facts(program)
@@ -560,9 +539,9 @@ variable("x").
 
     transformed.rules.extend(facts + abstract_facts)
 
-    print("\nTransformed program:")
-    print(pprint(transformed))
+    # print("\nTransformed program:")
+    # print(pprint(transformed))
 
-    transformed = transform_for_recording_facts(program, 2)
+    transformed = transform_for_recording_facts(transformed, 2, fact_names)
     print("\nTransformed program that can record facts:")
     print(pprint(transformed))

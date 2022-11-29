@@ -1,5 +1,6 @@
 import itertools
 import common
+from souffle import Literal
 from typing import List, Dict, Set, Any
 
 
@@ -15,6 +16,10 @@ def list_to_str(l: List[Any]) -> str:
     return common.LEFT_SQUARE_BRACKET + common.DELIMITER.join([str(x) for x in l]) + common.RIGHT_SQUARE_BRACKET
 
 
-def split_to_chunks(a: List[Any], n: int) -> List[List[Any]]:
+def split_into_chunks(a: List[Any], n: int) -> List[List[Any]]:
     k, m = divmod(len(a), n)
     return list(a[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(n))
+
+
+def hash_literal(literal: Literal) -> int:
+    return hash(literal.name) + hash(tuple(literal.args)) + hash(literal.positive)
