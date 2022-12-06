@@ -2,7 +2,7 @@ import common
 from souffle import collect, transform, parse, pprint, Variable, Literal, Rule, String, Number, Program
 import utils
 
-from typing import Any, List, Dict, Set, Tuple, Optional, DefaultDict
+from typing import Any, List, Dict, Set, Tuple, Optional, DefaultDict, Union
 import itertools
 from collections import defaultdict
 
@@ -21,13 +21,13 @@ def constr_pred_consts_lst_map(facts, f):
     return d
 
 
-def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], Set[String | Number]]:
+def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[Union[String, Number]]], Set[Union[String, Number]]]:
     """Analyse the constansts that symbolic constants in program `p` in principle attempt to unify with during evaluation."""
 
     rules = collect(p, lambda x: isinstance(x, Rule))
 
     Loc = Tuple[str, int]  # loc: (pred_name, index)
-    Value = String | Number
+    Value = Union[String, Number]
     LocValuesDict = DefaultDict[Loc, Set[Value]]
     LocLocsDict = DefaultDict[Loc, Set[Loc]]
 
@@ -45,19 +45,19 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], 
         symloc_unifiable_locs_map: DefaultDict[Loc, Set[Loc]] = defaultdict(
             set)
 
-        def var_in_pos_lit(arg: Variable | String | Number, lit: Literal) -> bool:
+        def var_in_pos_lit(arg: Union[Variable, String, Number], lit: Literal) -> bool:
             if isinstance(arg, Variable) and arg in lit.args and lit.positive:
                 return True
             return False
 
-        def find_arg_at_loc(loc: Loc, rule: Rule) -> Optional[String | Number | Variable]:
+        def find_arg_at_loc(loc: Loc, rule: Rule) -> Optional[Union[String, Number, Variable]]:
             pred_name, idx = loc
             for l in rule.body:
                 if l.name == pred_name:
                     return l.args[idx]
             return None
 
-        def find_unifiable_locs_of_arg(arg: Variable | String | Number, lits: List[Literal]) -> Set[Loc]:
+        def find_unifiable_locs_of_arg(arg: Union[Variable, String, Number], lits: List[Literal]) -> Set[Loc]:
             locs = set()
             for lit in lits:
                 if var_in_pos_lit(arg, lit):  # only positive literals
@@ -243,7 +243,7 @@ def transform_into_meta_program(p: Program) -> Program:
     def binding_vars_of_pred(pred_name: str) -> List[Variable]:
         return [Variable(f"{common.BINDING_VARIABLE_PREFIX}{x.value}") for x in pred_sym_consts_map.get(pred_name, [])]
 
-    def add_domain_literal(sym_arg: String | Number) -> Literal:
+    def add_domain_literal(sym_arg: Union[String, Number]) -> Literal:
         # E.g., domain_alpha(var_alpha)
         return Literal(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_arg.value}", 
         [Variable(f"{common.BINDING_VARIABLE_PREFIX}{sym_arg.value}")], True)

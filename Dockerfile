@@ -36,6 +36,6 @@ RUN python3 -m pip install -r /tmp/requirements.txt
 
 RUN mkdir -p /symlog
 
-COPY src/souffle.py /symlog/souffle.py
+COPY src/ /symlog/
 
 WORKDIR /symlog
