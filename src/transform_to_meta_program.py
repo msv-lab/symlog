@@ -52,7 +52,7 @@ def transform_for_recording_facts(p: Program, num: int, fact_heads: List[Literal
         if isinstance(n, Rule) and n.body:
             rule = n
             head_hash = utils.hash_literal(rule.head)
-            if head_hash not in fact_head_id_map:
+            if head_hash not in fact_head_id_map: # not a fact
 
                 head_record_args = [Variable(
                     f"{rule.head.name}{common.RECORD_ARG_PREFIX}{i}") for i in range(1, 1 + num)]
@@ -68,7 +68,7 @@ def transform_for_recording_facts(p: Program, num: int, fact_heads: List[Literal
 
                 return Rule(add_record_args(rule.head), [add_record_args(literal) for literal in rule.body] + unifications)
 
-            else:
+            else: # a fact
                 return Rule(add_id_args(rule.head, fact_head_id_map[head_hash]), rule.body)
 
         return n
