@@ -5,8 +5,9 @@ import utils
 from typing import Any, List, Dict, Set, Tuple, Optional, DefaultDict, Union
 import itertools
 from collections import defaultdict
+import pytest
 
-DEBUG = True
+DEBUG = False
 
 
 def extract_pred_symconsts_pair(fact):
@@ -79,7 +80,7 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[Union[String, Numbe
                     loc_values_map[(rule.head.name, i)].add(arg)
 
                     # when value is symbolic, add loc, value to
-                    # loc_symvalues_map
+                    # eloc_symvalues_map
                     if isinstance(arg, String) and arg.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX):
                         eloc_symvalues_map[(rule.head.name, i)].add(arg)
             else:
@@ -149,7 +150,7 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[Union[String, Numbe
         # print the loc values map
         print("\nloc_values_map: \n", "\n".join(
             [f"{k} -> {set(map(lambda x: x.value, v))}" for k, v in 
-            init_loc_values_map.items()]))
+            loc_values_map.items()]))
 
     return unifiable_consts_map
 
@@ -278,10 +279,9 @@ def transform_into_meta_program(p: Program) -> Program:
 
     return transform(p, add_binding_vars)
 
-
-if __name__ == "__main__":
-
-    program_text = """
+@pytest.fixture
+def program_text():
+    return """
 .decl reach_no_call(from:number, to:number, v:symbol)
 .decl call(f:symbol, node:number, v:symbol)
 .decl final(n:number)
@@ -335,6 +335,55 @@ label(5).
 variable("x").
     """
 
+
+def test_naive_meta_program_transformation(program_text):
+    answer = """
+.decl reach_no_call(v0:number, v1:number, v2:symbol, v3:symbol, v4:symbol, v5:symbol, v6:symbol)
+.decl call(v0:symbol, v1:number, v2:symbol, v3:symbol, v4:symbol, v5:symbol)
+.decl final(v0:number, v1:symbol)
+.decl flow(v0:number, v1:number)
+.decl correct_usage(v0:number, v1:symbol, v2:symbol, v3:symbol, v4:symbol)
+.decl incorrect_usage(v0:number, v1:symbol, v2:symbol, v3:symbol, v4:symbol)
+.decl label(v0:number)
+.decl variable(v0:symbol)
+.decl _symlog_domain__symlog_symbolic_open(v0:symbol)
+.decl _symlog_domain__symlog_symbolic_2(v0:symbol)
+.decl _symlog_domain__symlog_symbolic_x(v0:symbol)
+.decl _symlog_domain__symlog_symbolic_1(v0:symbol)
+.input final
+.input call
+.input flow
+.input label
+.input variable
+.output correct_usage
+correct_usage(L, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_1) :- call("open", L, _, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x), !incorrect_usage(L, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_1), label(L), _symlog_domain__symlog_symbolic_open(_symlog_binding__symlog_symbolic_open), _symlog_domain__symlog_symbolic_2(_symlog_binding__symlog_symbolic_2), _symlog_domain__symlog_symbolic_x(_symlog_binding__symlog_symbolic_x), _symlog_domain__symlog_symbolic_1(_symlog_binding__symlog_symbolic_1).
+incorrect_usage(L, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_1) :- call("open", L, V, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x), flow(L, L1), final(F, _symlog_binding__symlog_symbolic_1), reach_no_call(L1, F, V, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_1), _symlog_domain__symlog_symbolic_open(_symlog_binding__symlog_symbolic_open), _symlog_domain__symlog_symbolic_2(_symlog_binding__symlog_symbolic_2), _symlog_domain__symlog_symbolic_x(_symlog_binding__symlog_symbolic_x), _symlog_domain__symlog_symbolic_1(_symlog_binding__symlog_symbolic_1).
+reach_no_call(X, X, V, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_1) :- label(X), !call("close", X, V, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x), variable(V), _symlog_domain__symlog_symbolic_open(_symlog_binding__symlog_symbolic_open), _symlog_domain__symlog_symbolic_2(_symlog_binding__symlog_symbolic_2), _symlog_domain__symlog_symbolic_x(_symlog_binding__symlog_symbolic_x), _symlog_domain__symlog_symbolic_1(_symlog_binding__symlog_symbolic_1).
+reach_no_call(X, Y, V, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_1) :- !call("close", X, V, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x), flow(X, Z), reach_no_call(Z, Y, V, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_1), _symlog_domain__symlog_symbolic_open(_symlog_binding__symlog_symbolic_open), _symlog_domain__symlog_symbolic_2(_symlog_binding__symlog_symbolic_2), _symlog_domain__symlog_symbolic_x(_symlog_binding__symlog_symbolic_x), _symlog_domain__symlog_symbolic_1(_symlog_binding__symlog_symbolic_1).
+call("open", 1, "x", _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x) :- _symlog_domain__symlog_symbolic_open(_symlog_binding__symlog_symbolic_open), _symlog_domain__symlog_symbolic_2(_symlog_binding__symlog_symbolic_2), _symlog_domain__symlog_symbolic_x(_symlog_binding__symlog_symbolic_x).
+call("close", 4, "x", _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x) :- _symlog_domain__symlog_symbolic_open(_symlog_binding__symlog_symbolic_open), _symlog_domain__symlog_symbolic_2(_symlog_binding__symlog_symbolic_2), _symlog_domain__symlog_symbolic_x(_symlog_binding__symlog_symbolic_x).
+call(_symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x) :- _symlog_domain__symlog_symbolic_open(_symlog_binding__symlog_symbolic_open), _symlog_domain__symlog_symbolic_2(_symlog_binding__symlog_symbolic_2), _symlog_domain__symlog_symbolic_x(_symlog_binding__symlog_symbolic_x).
+final(5, _symlog_binding__symlog_symbolic_1) :- _symlog_domain__symlog_symbolic_1(_symlog_binding__symlog_symbolic_1).
+final(_symlog_binding__symlog_symbolic_1, _symlog_binding__symlog_symbolic_1) :- _symlog_domain__symlog_symbolic_1(_symlog_binding__symlog_symbolic_1).
+flow(1, 2).
+flow(2, 3).
+flow(3, 4).
+flow(4, 5).
+label(1).
+label(2).
+label(3).
+label(4).
+label(5).
+variable("x").
+_symlog_domain__symlog_symbolic_open("open").
+_symlog_domain__symlog_symbolic_2(1).
+_symlog_domain__symlog_symbolic_x("x").
+_symlog_domain__symlog_symbolic_open("close").
+_symlog_domain__symlog_symbolic_2(4).
+_symlog_domain__symlog_symbolic_x("x").
+_symlog_domain__symlog_symbolic_1(5).
+"""
+
     program = parse(program_text)
 
     transformed = transform_into_meta_program(program)
@@ -343,9 +392,25 @@ variable("x").
 
     transformed.rules.extend(facts)
 
-    print(pprint(transformed))
+    assert pprint(transformed).strip() == answer.strip()
 
+
+def convert_dict_values_to_sets(my_dict):
+    # Convert each value in the dictionary to a set and join the keys with a comma
+    return {','.join([i.value for i in k]): set([i.value for i in v]) for k, v in my_dict.items()}
+
+def test_symconst_unifiable_consts_mapping(program_text):
+    program = parse(program_text)
     symconst_unifiable_consts_map = analyse_symbolic_constants(program)
+    
+    new_dict = convert_dict_values_to_sets(symconst_unifiable_consts_map)
 
-    print("\n symconst_unifiable_consts_map: \n" +
-          '\n'.join([f"{','.join([i.value for i in k])} -> {[i.value for i in v]}" for k, v in symconst_unifiable_consts_map.items()]))
+    answer = {
+        '_symlog_symbolic_open': set([]),
+        '_symlog_symbolic_2': set([2, 5, 4, 1, 3]),
+        '_symlog_symbolic_x': set(['x']),
+        '_symlog_symbolic_1': set([2, 5, 4, 1, 3]),
+    }
+
+    assert new_dict == answer
+
