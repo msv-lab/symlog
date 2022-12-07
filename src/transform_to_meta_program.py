@@ -9,11 +9,11 @@ from collections import defaultdict
 DEBUG = True
 
 
-def extract_pred_symbolic_consts(fact, symbolic_consts):
-    return fact.head.name, [arg for arg in fact.head.args if arg in symbolic_consts]
+def extract_pred_symconsts_pair(fact):
+    return fact.head.name, [arg for arg in fact.head.args if isinstance(arg, String) and arg.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX)]
 
 
-def constr_pred_consts_lst_map(facts, f):
+def create_pred_consts_lst_map(facts, f):
     d = defaultdict(list)
     for k, v in list(map(f, facts)):
         if v:
@@ -124,7 +124,7 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[Union[String, Numbe
 
         return loc_values_map
 
-    def construct_unifiable_consts_map(loc_values_map: LocValuesDict, 
+    def create_unifiable_consts_map(loc_values_map: LocValuesDict, 
     eloc_symvalues_map: LocValuesDict, symloc_unifiable_locs_map: LocLocsDict) -> Dict[Tuple[Set[Value]], Set[Value]]:
 
         # sym const -> set of consts that sym const attempt to unify with
@@ -142,7 +142,7 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[Union[String, Numbe
 
     loc_values_map = analyse_loc_values(init_loc_values_map, hloc_blocs_map)
 
-    unifiable_consts_map = construct_unifiable_consts_map(
+    unifiable_consts_map = create_unifiable_consts_map(
         loc_values_map, eloc_symvalues_map, symloc_unifiable_locs_map)
 
     if DEBUG:
@@ -154,73 +154,40 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[Union[String, Numbe
     return unifiable_consts_map
 
 
-def construct_naive_domain_facts(p: Program) -> List[Rule]:
+def create_naive_domain_facts(p: Program) -> List[Rule]:
 
-    symbolic_consts = collect(p, lambda x: (isinstance(
-        x, String)) and x.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX))
+    def create_fact(pred_name, args):
+        return Rule(Literal(pred_name, args, True), [])
+
+    def extract_pred_nonsymconsts_pair(fact):
+        if not any([isinstance(arg, String) and arg.value.startswith(
+            common.SYMBOLIC_CONSTANT_PREFIX) for arg in fact.head.args]):
+            return (fact.head.name, fact.head.args)
+        return (None, None)
 
     facts = collect(p, lambda x: isinstance(x, Rule) and not x.body)
 
-    pred_sym_consts_list_map = constr_pred_consts_lst_map(
-        facts, lambda x: extract_pred_symbolic_consts(x, symbolic_consts))
+    pred_sym_consts_list_map = create_pred_consts_lst_map(
+        facts, lambda x: extract_pred_symconsts_pair(x))
 
-    pred_consts_list_map = constr_pred_consts_lst_map(
-        facts, lambda x: (x.head.name, x.head.args))
-
-    def construct_fact(pred_name, args):
-        return Rule(Literal(pred_name, args, True), [])
+    pred_consts_list_map = create_pred_consts_lst_map(
+        facts, lambda x: extract_pred_nonsymconsts_pair(x))
 
     const_facts = []
     for pred_name in pred_sym_consts_list_map.keys():
         for sym_consts, consts in itertools.product(pred_sym_consts_list_map[pred_name], pred_consts_list_map[pred_name]):
-            const_facts.extend([construct_fact(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const.value}", [
+            const_facts.extend([create_fact(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const.value}", [
                                const]) for (const, sym_const) in zip(consts, sym_consts)])
 
     return const_facts
 
 
-def construct_abstract_domain_facts(p):
+def create_abstract_domain_facts(p):
     pass
 
 
 def transform_into_meta_program(p: Program) -> Program:
-    """Transform a Datalog program into the meta-Datalog program. E.g.,
-
-    Original Datalog program: 
-
-    r(x, x) :- n(x).
-    r(x, y) :- r(x, z), e(z, y).
-
-    e(1, 2).
-    e(alpha, beta).
-    n(1).
-    n(2).
-    n(gamma).
-
-    Transformed meta-Datalog program:
-
-    r(x, x, t1, t2, t3) :-
-        n(x, t3),
-        domain_alpha(t1),
-        domain_beta(t2),
-        domain_gamma(t3).
-    r(x, y, t1, t2, t3) :-
-        r(x, z, t1, t2, t3),
-        e(z, y, t1, t2),
-        domain_alpha(t1),
-        domain_beta(t2),
-        domain_gamma(t3).
-    e(1, 2, t1, t2) :-
-        domain_alpha(t1),
-        domain_beta(t2).
-    e(t1, t2, t1, t2) :-
-        domain_alpha(t1),
-        domain_beta(t2).
-    n(1, t3) :-
-        domain_gamma(t3).
-    n(2, t3) :- domain_gamma(t3).
-    n(t3, t3) :-domain_gamma(t3).
-    """
+    """Transform a Datalog program into the meta-Datalog program."""
 
     symbolic_consts = collect(p, lambda x: (isinstance(
         x, String) or isinstance(x, Number)) and str(x.value).startswith(common.SYMBOLIC_CONSTANT_PREFIX))
@@ -228,8 +195,8 @@ def transform_into_meta_program(p: Program) -> Program:
     # collect facts
     facts = collect(p, lambda x: isinstance(x, Rule) and not x.body)
 
-    pred_sym_consts_map = utils.flatten_dict(constr_pred_consts_lst_map(
-        facts, lambda x: extract_pred_symbolic_consts(x, symbolic_consts)))
+    pred_sym_consts_map = utils.flatten_dict(create_pred_consts_lst_map(
+        facts, lambda x: extract_pred_symconsts_pair(x)))
 
     edb_names = list(map(lambda x: x.head.name, facts))
 
@@ -372,7 +339,7 @@ variable("x").
 
     transformed = transform_into_meta_program(program)
 
-    facts = construct_naive_domain_facts(program)
+    facts = create_naive_domain_facts(program)
 
     transformed.rules.extend(facts)
 
