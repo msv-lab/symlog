@@ -292,3 +292,204 @@ def run_program(program, relations):
                     print(relations)
                     exit(1)
                 return load_relations(output_directory)
+
+if __name__ == "__main__":
+    test_program = """	
+
+.decl Primitive(type: symbol)
+Primitive("boolean").
+Primitive("short").
+Primitive("int").
+Primitive("long").
+Primitive("float").
+Primitive("double").
+Primitive("char").
+Primitive("byte").
+
+
+.decl InstructionLine(m: symbol, i: number, l: number, f: symbol)
+.input InstructionLine
+
+.decl VarPointsTo(hctx: symbol, a: symbol, ctx: symbol, v: symbol)
+.input VarPointsTo
+
+.decl CallGraphEdge(ctx: symbol, ins: symbol, hctx: symbol, sig: symbol)
+.input CallGraphEdge
+
+.decl Reachable(m: symbol)
+.input Reachable
+
+.decl SpecialMethodInvocation(instruction:symbol, i: number, sig: symbol, base:symbol, m: symbol)
+.input SpecialMethodInvocation
+
+
+.decl LoadArrayIndex(ins: symbol, i: number, to: symbol, base: symbol, m: symbol)
+.input LoadArrayIndex
+
+.decl StoreArrayIndex(ins: symbol, i: number, from: symbol, base: symbol, m: symbol)
+.input StoreArrayIndex
+
+.decl StoreInstanceField(ins: symbol, i: number, from: symbol, base: symbol, sig: symbol, m: symbol)
+.input StoreInstanceField
+
+.decl LoadInstanceField(ins: symbol, i: number, to: symbol, base: symbol, sig: symbol, m: symbol)
+.input LoadInstanceField
+
+.decl VirtualMethodInvocation(ins: symbol, i: number, sig: symbol,  base: symbol, m: symbol)
+.input VirtualMethodInvocation
+
+.decl ThrowNull(ins: symbol, i: number, m: symbol)
+.input ThrowNull
+
+.decl LoadStaticField(ins: symbol, i: number, to: symbol, sig: symbol, m: symbol)
+.input LoadStaticField
+
+.decl StoreStaticField(ins: symbol, i: number, from: symbol, sig: symbol, m: symbol)
+.input StoreStaticField
+
+.decl AssignCastNull(ins: symbol, i: number, to: symbol, t: symbol, m: symbol)
+.input AssignCastNull
+
+.decl AssignUnop(ins: symbol, i: number, to: symbol, m: symbol)
+.input AssignUnop
+
+.decl AssignBinop(ins: symbol, i: number, to: symbol, m: symbol)
+.input AssignBinop
+
+.decl AssignOperFrom(ins: symbol, from: symbol)
+.input AssignOperFrom
+
+.decl Var_Type(var: symbol, type: symbol)
+.input Var_Type
+
+.decl EnterMonitor(ins: symbol, i: number, to: symbol, m: symbol)
+.input EnterMonitor
+
+.decl ExitMonitor(ins: symbol, i: number, to: symbol, m: symbol)
+.input ExitMonitor
+
+
+.decl VarPointsToNull(v: symbol)
+
+.decl NullAt(m: symbol, i: number, type: symbol)
+
+.decl ReachableNullAt(m: symbol, i: number, type: symbol)
+
+.decl ReachableNullAtLine(m: symbol, i: number, f: symbol, l: number, type: symbol)
+.output ReachableNullAtLine
+
+VarPointsToNull(var) :- VarPointsTo(_, alloc, _, var),
+						alloc = "<<null pseudo heap>>".
+
+VarPointsToNull(var) :- AssignCastNull(_,_,var,_,_).
+
+NullAt(meth, index, "Throw NullPointerException") :-
+CallGraphEdge(_, a, _, b),
+contains("java.lang.NullPointerException", a),
+SpecialMethodInvocation(a, index, b, _, meth).
+
+
+NullAt(meth, index, "Load Array number") :-
+VarPointsToNull(var),
+LoadArrayIndex(_, index, _, var, meth).
+
+NullAt(meth, index, "Load Array number") :-
+!VarPointsTo(_,_,_,var),
+LoadArrayIndex(_, index, _, var, meth).
+
+
+NullAt(meth, index, "Store Array number") :-
+VarPointsToNull(var),
+StoreArrayIndex(_, index, _, var, meth).
+
+NullAt(meth, index, "Store Array number") :-
+!VarPointsTo(_,_,_,var),
+StoreArrayIndex(_, index, _, var, meth).
+
+
+NullAt(meth, index, "Store Instance Field") :-
+VarPointsToNull(var),
+StoreInstanceField(_, index, _, var, _, meth),
+!StoreArrayIndex(_, _, _, var, meth).
+
+NullAt(meth, index, "Store Instance Field") :-
+!VarPointsTo(_,_,_,var),
+StoreInstanceField(_, index, _, var, _, meth),
+!StoreArrayIndex(_, _, _, var, meth).
+
+
+NullAt(meth, index, "Load Instance Field") :-
+VarPointsToNull(var),
+LoadInstanceField(_, index, _, var, _, meth),
+!LoadArrayIndex(_, _, _, var, meth).
+
+NullAt(meth, index, "Load Instance Field") :-
+!VarPointsTo(_,_,_,var),
+LoadInstanceField(_, index, _, var, _, meth),
+!LoadArrayIndex(_, _, _, var, meth).
+
+
+
+NullAt(meth, index, "Virtual symbol Invocation") :-
+VarPointsToNull(var),
+VirtualMethodInvocation(_, index, _, var, meth).
+
+NullAt(meth, index, "Virtual symbol Invocation") :-
+!VarPointsTo(_,_,_,var),
+VirtualMethodInvocation(_, index, _, var, meth).
+
+NullAt(meth, index, "Special symbol Invocation") :-
+VarPointsToNull(var),
+SpecialMethodInvocation(_, index, _, var, meth).
+
+NullAt(meth, index, "Special symbol Invocation") :-
+!VarPointsTo(_,_,_,var),
+SpecialMethodInvocation(_, index, _, var, meth).
+
+
+NullAt(meth, index, "Unary Operator") :-
+VarPointsToNull(var),
+AssignUnop(ins, index, _, meth),
+AssignOperFrom(ins, var).
+
+NullAt(meth, index, "Unary Operator") :-
+!VarPointsTo(_,_,_,var),
+AssignUnop(ins, index, _, meth),
+AssignOperFrom(ins, var),
+Var_Type(var, type),
+!Primitive(type).
+
+NullAt(meth, index, "Binary Operator") :-
+VarPointsToNull(var),
+AssignBinop(ins, index, _, meth),
+AssignOperFrom(ins, var).
+
+NullAt(meth, index, "Binary Operator") :-
+!VarPointsTo(_,_,_,var),
+AssignBinop(ins, index, _, meth),
+AssignOperFrom(ins, var),
+Var_Type(var, type),
+!Primitive(type).
+
+NullAt(meth, index, "Throw Null") :-
+ThrowNull(_, index, meth).
+
+NullAt(meth, index, "Enter Monitor (Synchronized)") :-
+VarPointsToNull(var),
+EnterMonitor(_, index, var, meth).
+
+NullAt(meth, index, "Enter Monitor (Synchronized)") :-
+!VarPointsTo(_,_,_,var),
+Var_Type(var, type),
+!Primitive(type),
+EnterMonitor(_, index, var, meth).
+
+ReachableNullAt(meth, index, type) :- NullAt(meth, index, type), Reachable(meth).
+
+ReachableNullAtLine(meth, index, file, line, type) :- 
+ReachableNullAt(meth, index, type), 
+InstructionLine(meth, index, line, file).
+
+
+    """	
+    print(pprint(parse(test_program)))
