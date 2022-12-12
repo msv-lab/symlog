@@ -125,16 +125,16 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[Union[String, Numbe
 
         return loc_values_map
 
-    def create_unifiable_consts_map(loc_values_map: LocValuesDict, 
-    eloc_symvalues_map: LocValuesDict, symloc_unifiable_locs_map: LocLocsDict) -> Dict[Tuple[Set[Value]], Set[Value]]:
+    def create_unifiable_consts_map(loc_values_map: LocValuesDict,
+                                    eloc_symvalues_map: LocValuesDict, symloc_unifiable_locs_map: LocLocsDict) -> Dict[Tuple[Set[Value]], Set[Value]]:
 
         # sym const -> set of consts that sym const attempt to unify with
         unifiable_consts_map = dict()
 
         for loc, symvalues in eloc_symvalues_map.items():
             unifiable_consts_map[tuple(symvalues)] = set(
-                itertools.chain(*[loc_values_map[jloc] for jloc in 
-                symloc_unifiable_locs_map[loc]]))  # set of in principle to-be-joined constants
+                itertools.chain(*[loc_values_map[jloc] for jloc in
+                                  symloc_unifiable_locs_map[loc]]))  # set of in principle to-be-joined constants
 
         return unifiable_consts_map
 
@@ -149,8 +149,8 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[Union[String, Numbe
     if DEBUG:
         # print the loc values map
         print("\nloc_values_map: \n", "\n".join(
-            [f"{k} -> {set(map(lambda x: x.value, v))}" for k, v in 
-            loc_values_map.items()]))
+            [f"{k} -> {set(map(lambda x: x.value, v))}" for k, v in
+             loc_values_map.items()]))
 
     return unifiable_consts_map
 
@@ -162,7 +162,7 @@ def create_naive_domain_facts(p: Program) -> List[Rule]:
 
     def extract_pred_nonsymconsts_pair(fact):
         if not any([isinstance(arg, String) and arg.value.startswith(
-            common.SYMBOLIC_CONSTANT_PREFIX) for arg in fact.head.args]):
+                common.SYMBOLIC_CONSTANT_PREFIX) for arg in fact.head.args]):
             return (fact.head.name, fact.head.args)
         return (None, None)
 
@@ -202,7 +202,7 @@ def transform_into_meta_program(p: Program) -> Program:
     edb_names = list(map(lambda x: x.head.name, facts))
 
     binding_vars = [
-        Variable(f"{common.BINDING_VARIABLE_PREFIX}{x.value}") for x in 
+        Variable(f"{common.BINDING_VARIABLE_PREFIX}{x.value}") for x in
         symbolic_consts]
 
     def add_binding_vars_to_literal(l: Literal, binding_vars: List[Variable]) -> Literal:
@@ -213,8 +213,8 @@ def transform_into_meta_program(p: Program) -> Program:
 
     def add_domain_literal(sym_arg: Union[String, Number]) -> Literal:
         # E.g., domain_alpha(var_alpha)
-        return Literal(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_arg.value}", 
-        [Variable(f"{common.BINDING_VARIABLE_PREFIX}{sym_arg.value}")], True)
+        return Literal(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_arg.value}",
+                       [Variable(f"{common.BINDING_VARIABLE_PREFIX}{sym_arg.value}")], True)
 
     def transform_declarations() -> Dict[str, List[str]]:
 
@@ -237,7 +237,7 @@ def transform_into_meta_program(p: Program) -> Program:
             else:
                 # IDB head declaration
                 return [(n.head.name, p.declarations[n.head.name] + [common.
-                DEFAULT_SOUFFLE_TYPE] * len(binding_vars))]
+                                                                     DEFAULT_SOUFFLE_TYPE] * len(binding_vars))]
 
         rules = collect(p, lambda x: isinstance(x, Rule))
 
@@ -251,7 +251,7 @@ def transform_into_meta_program(p: Program) -> Program:
             if not n.body:
                 # fact
                 replaced = transform(
-                    n.head, lambda x: Variable(f"{common.BINDING_VARIABLE_PREFIX}{x.value}") if x in symbolic_consts 
+                    n.head, lambda x: Variable(f"{common.BINDING_VARIABLE_PREFIX}{x.value}") if x in symbolic_consts
                     else x)
 
                 domain_body = [add_domain_literal(
@@ -261,8 +261,8 @@ def transform_into_meta_program(p: Program) -> Program:
             else:
                 # rule
                 replaced_head = transform(n.head, lambda x:
-                add_binding_vars_to_literal(
-                    x, binding_vars) if isinstance(x, Literal) else x)
+                                          add_binding_vars_to_literal(
+                                              x, binding_vars) if isinstance(x, Literal) else x)
 
                 replaced_body = list(map(lambda l: transform(l, lambda x: add_binding_vars_to_literal(x, binding_vars_of_pred(
                     x.name) if x.name in edb_names else binding_vars) if
@@ -402,7 +402,7 @@ def convert_dict_values_to_sets(my_dict):
 def test_symconst_unifiable_consts_mapping(program_text):
     program = parse(program_text)
     symconst_unifiable_consts_map = analyse_symbolic_constants(program)
-    
+
     new_dict = convert_dict_values_to_sets(symconst_unifiable_consts_map)
 
     answer = {
