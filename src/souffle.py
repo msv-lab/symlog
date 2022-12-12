@@ -123,7 +123,7 @@ def pprint(program):
         
     def pprint_unification(u):
         op = "=" if u.positive else "!="
-        return f"{u.left} {op} {u.right}"
+        return f"{pprint_term(u.left)} {op} {pprint_term(u.right)}"
     
     result = ""
 
@@ -143,11 +143,12 @@ def pprint(program):
         if rule.body:
             result += " :- "
         body_results = []
-        for el in rule.body:
-            if isinstance(el, Unification):
-                body_results.append(pprint_unification(el))
-            else:
-                body_results.append(pprint_literal(el))
+        if rule.body:
+            for el in rule.body:
+                if isinstance(el, Unification):
+                    body_results.append(pprint_unification(el))
+                else:
+                    body_results.append(pprint_literal(el))
         result += ", ".join(body_results) + ".\n"
 
     return result
