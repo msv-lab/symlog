@@ -1,11 +1,12 @@
 import common
-from souffle import collect, transform, parse, pprint, Variable, Literal, Rule, String, Number, Program
+from souffle import collect, transform, parse, pprint, Variable, Literal, Rule, String, Number, Program, load_relations
 import utils
 
 from typing import Any, List, Dict, Set, Tuple, Optional, DefaultDict, Union
 import itertools
 from collections import defaultdict
 import pytest
+import os
 
 DEBUG = False
 
@@ -162,6 +163,7 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[Union[String, Numbe
 
 
 def create_naive_domain_facts(p: Program) -> List[Rule]:
+
     def create_fact(pred_name, args):
         return Rule(Literal(pred_name, args, True), [])
 
@@ -174,10 +176,10 @@ def create_naive_domain_facts(p: Program) -> List[Rule]:
 
     facts = collect(p, lambda x: isinstance(x, Rule) and not x.body)
 
-    pred_symconsts_list_map = group_pred_consts_list(facts, lambda x: 
-extract_pred_symconsts_pair(x))
-    pred_consts_list_map = group_pred_consts_list(facts, lambda x: 
-extract_pred_nonsymconsts_pair(x))
+    pred_symconsts_list_map = group_pred_consts_list(facts, lambda x:
+                                                     extract_pred_symconsts_pair(x))
+    pred_consts_list_map = group_pred_consts_list(facts, lambda x:
+                                                  extract_pred_nonsymconsts_pair(x))
 
     naive_facts = []
 
@@ -207,9 +209,9 @@ def transform_declarations(p: Program) -> Dict[str, List[str]]:
         name = fact.head.name
 
         # get the list of symbolic constants and their types in the predicate arguments
-        symconst_types = [(arg, p.declarations[name][idx]) for idx, arg in 
-enumerate(fact.head.args) if isinstance(arg, String) and 
-arg.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX)]
+        symconst_types = [(arg, p.declarations[name][idx]) for idx, arg in
+                          enumerate(fact.head.args) if isinstance(arg, String) and
+                          arg.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX)]
 
         return name, symconst_types
 
@@ -217,8 +219,8 @@ arg.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX)]
     facts = collect(p, lambda x: isinstance(x, Rule) and not x.body)
 
     pred_symconstype_map = utils.flatten_dict(
-        group_pred_consts_list(facts, lambda x: 
-extract_pred_symconstype_pair(x)))
+        group_pred_consts_list(facts, lambda x:
+                               extract_pred_symconstype_pair(x)))
 
     # create a dictionary that maps symbolic constants to their types
     symconst_type_map = {symconst: type for fact in facts for symconst, type in extract_pred_symconstype_pair(fact)[1]}
@@ -272,7 +274,9 @@ def transform_into_meta_program(p: Program) -> Program:
     pred_sym_consts_map = utils.flatten_dict(group_pred_consts_list(
         facts, lambda x: extract_pred_symconsts_pair(x)))
 
-    edb_names = list(map(lambda x: x.head.name, facts))
+    edb_names = set(p.declarations.keys()) - set([x.head.name for x in collect(p, lambda x: isinstance(x, Rule) and x.body)])
+    special_pred_names = edb_names | {"contains", "substr","cat"}
+    # TODO: also exclude internal predicates, e.g., contains.
 
     binding_vars = [
         Variable(f"{common.BINDING_VARIABLE_PREFIX}{x.value}") for x in
@@ -308,7 +312,7 @@ def transform_into_meta_program(p: Program) -> Program:
                                               x, binding_vars) if isinstance(x, Literal) else x)
 
                 replaced_body = list(map(lambda l: transform(l, lambda x: add_binding_vars_to_literal(x, binding_vars_of_pred(
-                    x.name) if x.name in edb_names else binding_vars) if
+                    x.name) if x.name in special_pred_names else binding_vars) if
                     isinstance(x, Literal) else x), n.body))
 
                 domain_body = [add_domain_literal(x) for x in symbolic_consts]
