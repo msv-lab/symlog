@@ -20,7 +20,7 @@ String = namedtuple('String', ['value'])
 Number = namedtuple('Number', ['value'])
 Term = Union[Variable, String, Number]
 
-
+#TODO: add support for ?type
 souffle_grammar = """
     start: (declaration | rule | directive | output | input)*
     directive: "#" NAME ESCAPED_STRING
@@ -123,7 +123,7 @@ def pprint(program):
         
     def pprint_unification(u):
         op = "=" if u.positive else "!="
-        return f"{u.left} {op} {u.right}"
+        return f"{pprint_term(u.left)} {op} {pprint_term(u.right)}"
     
     result = ""
 
@@ -143,11 +143,12 @@ def pprint(program):
         if rule.body:
             result += " :- "
         body_results = []
-        for el in rule.body:
-            if isinstance(el, Unification):
-                body_results.append(pprint_unification(el))
-            else:
-                body_results.append(pprint_literal(el))
+        if rule.body:
+            for el in rule.body:
+                if isinstance(el, Unification):
+                    body_results.append(pprint_unification(el))
+                else:
+                    body_results.append(pprint_literal(el))
         result += ", ".join(body_results) + ".\n"
 
     return result
@@ -293,62 +294,203 @@ def run_program(program, relations):
                     exit(1)
                 return load_relations(output_directory)
 
-
-    
-
 if __name__ == "__main__":
+    test_program = """	
 
-    program_text = """
-.decl reach_no_call(from:number, to:number, v:symbol)
-.decl call(f:symbol, node:number, v:symbol)
-.decl final(n:number)
-.decl flow(x:number, y:number)
-.decl correct_usage(n:number)
-.decl incorrect_usage(n:number)        
-.decl label(l:number)
-.decl variable(v:symbol)        
-.input final
-.input call    
-.input flow
-.input label     
-.input variable
-.output correct_usage
+.decl Primitive(type: symbol)
+Primitive("boolean").
+Primitive("short").
+Primitive("int").
+Primitive("long").
+Primitive("float").
+Primitive("double").
+Primitive("char").
+Primitive("byte").
 
-correct_usage(L) :-
-   call("open", L, _),
-   ! incorrect_usage(L),
-   label(L).
-incorrect_usage(L) :-
-  call("open", L, V),
-  flow(L, L1),
-  final(F),
-  reach_no_call(L1, F, V).
-  
-reach_no_call(X, X, V) :-
-  label(X),
-  ! call("close", X, V),
-  variable(V).
 
-reach_no_call(X, Y, V) :-
-  ! call("close", X, V),
-  flow(X, Z),
-  reach_no_call(Z, Y, V).
-    """
+.decl InstructionLine(m: symbol, i: number, l: number, f: symbol)
+.input InstructionLine
 
-    relations = {
-        "call": [("open", 1, "x"), ("close", 4, "x"), ("_symlog_symbolic_open", 2, "x"), ("_symlog_symbolic_close", 3, "x")],
-        "final": [(5,)],
-        "flow": [(1, 2), (2, 3), (3, 4), (4, 5)],
-        "label": [(1,), (2,), (3,), (4,), (5,)],
-        "variable": [("x",)]
-    }
+.decl VarPointsTo(hctx: symbol, a: symbol, ctx: symbol, v: symbol)
+.input VarPointsTo
 
-    program = parse(program_text)
+.decl CallGraphEdge(ctx: symbol, ins: symbol, hctx: symbol, sig: symbol)
+.input CallGraphEdge
 
-    transformed = transform(program, lambda n: Variable(f"{n.name}_2") if isinstance(n, Variable) else n)
+.decl Reachable(m: symbol)
+.input Reachable
 
-    print(pprint(transformed))
+.decl SpecialMethodInvocation(instruction:symbol, i: number, sig: symbol, base:symbol, m: symbol)
+.input SpecialMethodInvocation
 
-    result = run_program(transformed, relations)
 
-    print(result)
+.decl LoadArrayIndex(ins: symbol, i: number, to: symbol, base: symbol, m: symbol)
+.input LoadArrayIndex
+
+.decl StoreArrayIndex(ins: symbol, i: number, from: symbol, base: symbol, m: symbol)
+.input StoreArrayIndex
+
+.decl StoreInstanceField(ins: symbol, i: number, from: symbol, base: symbol, sig: symbol, m: symbol)
+.input StoreInstanceField
+
+.decl LoadInstanceField(ins: symbol, i: number, to: symbol, base: symbol, sig: symbol, m: symbol)
+.input LoadInstanceField
+
+.decl VirtualMethodInvocation(ins: symbol, i: number, sig: symbol,  base: symbol, m: symbol)
+.input VirtualMethodInvocation
+
+.decl ThrowNull(ins: symbol, i: number, m: symbol)
+.input ThrowNull
+
+.decl LoadStaticField(ins: symbol, i: number, to: symbol, sig: symbol, m: symbol)
+.input LoadStaticField
+
+.decl StoreStaticField(ins: symbol, i: number, from: symbol, sig: symbol, m: symbol)
+.input StoreStaticField
+
+.decl AssignCastNull(ins: symbol, i: number, to: symbol, t: symbol, m: symbol)
+.input AssignCastNull
+
+.decl AssignUnop(ins: symbol, i: number, to: symbol, m: symbol)
+.input AssignUnop
+
+.decl AssignBinop(ins: symbol, i: number, to: symbol, m: symbol)
+.input AssignBinop
+
+.decl AssignOperFrom(ins: symbol, from: symbol)
+.input AssignOperFrom
+
+.decl Var_Type(var: symbol, type: symbol)
+.input Var_Type
+
+.decl EnterMonitor(ins: symbol, i: number, to: symbol, m: symbol)
+.input EnterMonitor
+
+.decl ExitMonitor(ins: symbol, i: number, to: symbol, m: symbol)
+.input ExitMonitor
+
+
+.decl VarPointsToNull(v: symbol)
+
+.decl NullAt(m: symbol, i: number, type: symbol)
+
+.decl ReachableNullAt(m: symbol, i: number, type: symbol)
+
+.decl ReachableNullAtLine(m: symbol, i: number, f: symbol, l: number, type: symbol)
+.output ReachableNullAtLine
+
+VarPointsToNull(var) :- VarPointsTo(_, alloc, _, var),
+						alloc = "<<null pseudo heap>>".
+
+VarPointsToNull(var) :- AssignCastNull(_,_,var,_,_).
+
+NullAt(meth, index, "Throw NullPointerException") :-
+CallGraphEdge(_, a, _, b),
+contains("java.lang.NullPointerException", a),
+SpecialMethodInvocation(a, index, b, _, meth).
+
+
+NullAt(meth, index, "Load Array number") :-
+VarPointsToNull(var),
+LoadArrayIndex(_, index, _, var, meth).
+
+NullAt(meth, index, "Load Array number") :-
+!VarPointsTo(_,_,_,var),
+LoadArrayIndex(_, index, _, var, meth).
+
+
+NullAt(meth, index, "Store Array number") :-
+VarPointsToNull(var),
+StoreArrayIndex(_, index, _, var, meth).
+
+NullAt(meth, index, "Store Array number") :-
+!VarPointsTo(_,_,_,var),
+StoreArrayIndex(_, index, _, var, meth).
+
+
+NullAt(meth, index, "Store Instance Field") :-
+VarPointsToNull(var),
+StoreInstanceField(_, index, _, var, _, meth),
+!StoreArrayIndex(_, _, _, var, meth).
+
+NullAt(meth, index, "Store Instance Field") :-
+!VarPointsTo(_,_,_,var),
+StoreInstanceField(_, index, _, var, _, meth),
+!StoreArrayIndex(_, _, _, var, meth).
+
+
+NullAt(meth, index, "Load Instance Field") :-
+VarPointsToNull(var),
+LoadInstanceField(_, index, _, var, _, meth),
+!LoadArrayIndex(_, _, _, var, meth).
+
+NullAt(meth, index, "Load Instance Field") :-
+!VarPointsTo(_,_,_,var),
+LoadInstanceField(_, index, _, var, _, meth),
+!LoadArrayIndex(_, _, _, var, meth).
+
+
+
+NullAt(meth, index, "Virtual symbol Invocation") :-
+VarPointsToNull(var),
+VirtualMethodInvocation(_, index, _, var, meth).
+
+NullAt(meth, index, "Virtual symbol Invocation") :-
+!VarPointsTo(_,_,_,var),
+VirtualMethodInvocation(_, index, _, var, meth).
+
+NullAt(meth, index, "Special symbol Invocation") :-
+VarPointsToNull(var),
+SpecialMethodInvocation(_, index, _, var, meth).
+
+NullAt(meth, index, "Special symbol Invocation") :-
+!VarPointsTo(_,_,_,var),
+SpecialMethodInvocation(_, index, _, var, meth).
+
+
+NullAt(meth, index, "Unary Operator") :-
+VarPointsToNull(var),
+AssignUnop(ins, index, _, meth),
+AssignOperFrom(ins, var).
+
+NullAt(meth, index, "Unary Operator") :-
+!VarPointsTo(_,_,_,var),
+AssignUnop(ins, index, _, meth),
+AssignOperFrom(ins, var),
+Var_Type(var, type),
+!Primitive(type).
+
+NullAt(meth, index, "Binary Operator") :-
+VarPointsToNull(var),
+AssignBinop(ins, index, _, meth),
+AssignOperFrom(ins, var).
+
+NullAt(meth, index, "Binary Operator") :-
+!VarPointsTo(_,_,_,var),
+AssignBinop(ins, index, _, meth),
+AssignOperFrom(ins, var),
+Var_Type(var, type),
+!Primitive(type).
+
+NullAt(meth, index, "Throw Null") :-
+ThrowNull(_, index, meth).
+
+NullAt(meth, index, "Enter Monitor (Synchronized)") :-
+VarPointsToNull(var),
+EnterMonitor(_, index, var, meth).
+
+NullAt(meth, index, "Enter Monitor (Synchronized)") :-
+!VarPointsTo(_,_,_,var),
+Var_Type(var, type),
+!Primitive(type),
+EnterMonitor(_, index, var, meth).
+
+ReachableNullAt(meth, index, type) :- NullAt(meth, index, type), Reachable(meth).
+
+ReachableNullAtLine(meth, index, file, line, type) :- 
+ReachableNullAt(meth, index, type), 
+InstructionLine(meth, index, line, file).
+
+
+    """	
+    print(pprint(parse(test_program)))
