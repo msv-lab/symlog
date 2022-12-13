@@ -464,3 +464,113 @@ def test_symconst_unifiable_consts_mapping(program_text):
 
     assert new_dict == answer
 
+if __name__ == '__main__':
+    program_text = """
+
+.decl Primitive(type: symbol)
+Primitive("boolean").
+Primitive("short").
+Primitive("int").
+Primitive("long").
+Primitive("float").
+Primitive("double").
+Primitive("char").
+Primitive("byte").
+
+.decl InstructionLine(m: symbol, i: number, l: number, f: symbol)
+
+.decl VarPointsTo(hctx: symbol, a: symbol, ctx: symbol, v: symbol)
+
+.decl CallGraphEdge(ctx: symbol, ins: symbol, hctx: symbol, sig: symbol)
+
+.decl Reachable(m: symbol)
+
+.decl SpecialMethodInvocation(instruction:symbol, i: number, sig: symbol, base:symbol, m: symbol)
+
+.decl LoadArrayIndex(ins: symbol, i: number, to: symbol, base: symbol, m: symbol)
+
+.decl StoreArrayIndex(ins: symbol, i: number, from: symbol, base: symbol, m: symbol)
+
+.decl StoreInstanceField(ins: symbol, i: number, from: symbol, base: symbol, sig: symbol, m: symbol)
+
+.decl LoadInstanceField(ins: symbol, i: number, to: symbol, base: symbol, sig: symbol, m: symbol)
+
+.decl VirtualMethodInvocation(ins: symbol, i: number, sig: symbol,  base: symbol, m: symbol)
+
+.decl ThrowNull(ins: symbol, i: number, m: symbol)
+
+.decl LoadStaticField(ins: symbol, i: number, to: symbol, sig: symbol, m: symbol)
+
+.decl StoreStaticField(ins: symbol, i: number, from: symbol, sig: symbol, m: symbol)
+
+.decl AssignCastNull(ins: symbol, i: number, to: symbol, t: symbol, m: symbol)
+
+.decl AssignUnop(ins: symbol, i: number, to: symbol, m: symbol)
+
+.decl AssignBinop(ins: symbol, i: number, to: symbol, m: symbol)
+
+.decl AssignOperFrom(ins: symbol, from: symbol)
+
+.decl Var_Type(var: symbol, type: symbol)
+
+.decl EnterMonitor(ins: symbol, i: number, to: symbol, m: symbol)
+
+.decl ExitMonitor(ins: symbol, i: number, to: symbol, m: symbol)
+
+.decl VarPointsToNull(v: symbol)
+.decl NullAt(m: symbol, i: number, type: symbol)
+.decl ReachableNullAt(m: symbol, i: number, type: symbol)
+.decl ReachableNullAtLine(m: symbol, i: number, f: symbol, l: number, type: symbol)
+.output ReachableNullAtLine
+
+VarPointsToNull(var) :- VarPointsTo(_, alloc, _, var),
+						alloc = "<<null pseudo heap>>".
+
+VarPointsToNull(var) :- AssignCastNull(_,_,var,_,_).
+
+NullAt(meth, index, "Load Array number") :-
+VarPointsToNull(var),
+LoadArrayIndex(_, index, _, var, meth).
+
+ReachableNullAt(meth, index, type) :- NullAt(meth, index, type), Reachable(meth).
+
+ReachableNullAtLine(meth, index, file, line, type) :- 
+ReachableNullAt(meth, index, type), 
+InstructionLine(meth, index, line, file).
+"""	
+
+    program = parse(program_text)
+
+    # convert input relations dictionary to a list of Rules
+    inp_facts = load_relations('/home/liuyu/info3600-bugchecker-benchmarks/digger/logic/doop_logic/facts')
+    inp_database = load_relations('/home/liuyu/info3600-bugchecker-benchmarks/digger/logic/doop_logic/database')
+    relations = {**inp_facts, **inp_database}
+
+    facts = []
+    sym_cnt = 0
+    for name, relation in relations.items():
+        if name not in program.declarations:
+            continue
+
+        for row in relation:
+            args = [String(x) if program.declarations[name][idx]=='symbol' else Number(x) for idx, x in enumerate(row)]
+
+            facts.append(Rule(Literal(name, args, True), []))
+
+    # add symbolic fact for VarPointsTo
+    name = 'VarPointsTo'
+    row = relations[name][0]
+    sym_args = [String(common.SYMBOLIC_CONSTANT_PREFIX + str(sym_cnt + idx)) for idx, _ in enumerate(row)]
+    sym_cnt += len(row)
+    facts.append(Rule(Literal(name, sym_args, True), []))
+
+    program.rules.extend(facts)
+    declarations = transform_declarations(program)
+    program.declarations.update(declarations)   
+    transformed = transform_into_meta_program(program)
+ 
+    facts = create_naive_domain_facts(program)
+    transformed.rules.extend(facts)
+
+    with open(os.path.join(os.getcwd(), 'tests/transformed.dl'), 'w') as f:
+        f.write(pprint(transformed))

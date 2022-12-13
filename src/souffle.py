@@ -20,7 +20,7 @@ String = namedtuple('String', ['value'])
 Number = namedtuple('Number', ['value'])
 Term = Union[Variable, String, Number]
 
-
+#TODO: add support for ?type
 souffle_grammar = """
     start: (declaration | rule | directive | output | input)*
     directive: "#" NAME ESCAPED_STRING
