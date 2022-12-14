@@ -2,20 +2,26 @@ import common
 from souffle import collect, transform, parse, pprint, Variable, Literal, Rule, String, Number, Program
 import utils
 
-from typing import Any, List, Dict, Set, Tuple, Optional, DefaultDict
+from typing import Any, List, Dict, Set, Tuple, Optional, DefaultDict, Union
 import itertools
 from collections import defaultdict
 from sympy.utilities.iterables import multiset_partitions
+import pytest
 
-DEBUG = True
-
-
-def extract_pred_symbolic_consts(fact, symbolic_consts):
-    return fact.head.name, [arg for arg in fact.head.args if arg in
-                            symbolic_consts]
+DEBUG = False
 
 
-def constr_pred_consts_lst_map(facts, f):
+def extract_pred_symconsts_pair(fact: Rule) -> Tuple[str, List[String]]:
+    # get the name of the predicate
+    pred_name = fact.head.name
+
+    # get the list of symbolic constants in the predicate arguments
+    symbolic_consts = [arg for arg in fact.head.args if isinstance(arg, String) and arg.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX)]
+
+    return pred_name, symbolic_consts
+
+
+def group_pred_consts_list(facts, f):
     d = defaultdict(list)
     for k, v in list(map(f, facts)):
         if v:
@@ -23,13 +29,13 @@ def constr_pred_consts_lst_map(facts, f):
     return d
 
 
-def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], Set[String | Number]]:
+def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[Union[String, Number]]], Set[Union[String, Number]]]:
     """Analyse the constansts that symbolic constants in program `p` in principle attempt to unify with during evaluation."""
 
     rules = collect(p, lambda x: isinstance(x, Rule))
 
     Loc = Tuple[str, int]  # loc: (pred_name, index)
-    Value = String | Number
+    Value = Union[String, Number]
     LocValuesDict = DefaultDict[Loc, Set[Value]]
     LocLocsDict = DefaultDict[Loc, Set[Loc]]
 
@@ -47,19 +53,19 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], 
         symloc_unifiable_locs_map: DefaultDict[Loc, Set[Loc]] = defaultdict(
             set)
 
-        def var_in_pos_lit(arg: Variable | String | Number, lit: Literal) -> bool:
+        def var_in_pos_lit(arg: Union[Variable, String, Number], lit: Literal) -> bool:
             if isinstance(arg, Variable) and arg in lit.args and lit.positive:
                 return True
             return False
 
-        def find_arg_at_loc(loc: Loc, rule: Rule) -> Optional[String | Number | Variable]:
+        def find_arg_at_loc(loc: Loc, rule: Rule) -> Optional[Union[String, Number, Variable]]:
             pred_name, idx = loc
             for l in rule.body:
                 if l.name == pred_name:
                     return l.args[idx]
             return None
 
-        def find_unifiable_locs_of_arg(arg: Variable | String | Number, lits: List[Literal]) -> Set[Loc]:
+        def find_unifiable_locs_of_arg(arg: Union[Variable, String, Number], lits: List[Literal]) -> Set[Loc]:
             locs = set()
             for lit in lits:
                 if var_in_pos_lit(arg, lit):  # only positive literals
@@ -83,7 +89,7 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], 
                     loc_values_map[(rule.head.name, i)].add(arg)
 
                     # when value is symbolic, add loc, value to
-                    # loc_symvalues_map
+                    # eloc_symvalues_map
                     if isinstance(arg, String) and arg.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX):
                         eloc_symvalues_map[(rule.head.name, i)].add(arg)
             else:
@@ -128,7 +134,7 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], 
 
         return loc_values_map
 
-    def construct_unifiable_consts_map(loc_values_map: LocValuesDict,
+    def create_unifiable_consts_map(loc_values_map: LocValuesDict,
                                        eloc_symvalues_map: LocValuesDict,
                                        symloc_unifiable_locs_map: LocLocsDict) -> Dict[Tuple[Set[Value]], Set[Value]]:
 
@@ -147,7 +153,7 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], 
 
     loc_values_map = analyse_loc_values(init_loc_values_map, hloc_blocs_map)
 
-    unifiable_consts_map = construct_unifiable_consts_map(
+    unifiable_consts_map = create_unifiable_consts_map(
         loc_values_map, eloc_symvalues_map, symloc_unifiable_locs_map)
 
     if DEBUG:
@@ -162,41 +168,50 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[String | Number]], 
     return unifiable_consts_map
 
 
-def construct_naive_domain_facts(p: Program) -> List[Rule]:
+def create_naive_domain_facts(p: Program) -> List[Rule]:
+    def create_fact(pred_name, args):
+        return Rule(Literal(pred_name, args, True), [])
 
-    symbolic_consts = collect(p, lambda x: (isinstance(
-        x, String)) and x.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX))
+    def extract_pred_nonsymconsts_pair(fact):
+        if not any([isinstance(arg, String) and 
+        arg.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX) for arg in 
+        fact.head.args]):
+            return (fact.head.name, fact.head.args)
+        return (None, None)
 
     facts = collect(p, lambda x: isinstance(x, Rule) and not x.body)
 
-    pred_sym_consts_list_map = constr_pred_consts_lst_map(
-        facts, lambda x: extract_pred_symbolic_consts(x, symbolic_consts))
+    pred_symconsts_list_map = group_pred_consts_list(facts, lambda x: 
+extract_pred_symconsts_pair(x))
+    pred_consts_list_map = group_pred_consts_list(facts, lambda x: 
+extract_pred_nonsymconsts_pair(x))
 
-    pred_consts_list_map = constr_pred_consts_lst_map(
-        facts, lambda x: (x.head.name, x.head.args))
+    naive_facts = []
 
-    def construct_fact(pred_name, args):
-        return Rule(Literal(pred_name, args, True), [])
+    # for each predicate name
+    for pred_name in pred_symconsts_list_map.keys():
+        # get the list of symbolic constants and constants for the current predicate
+        sym_consts_list = pred_symconsts_list_map[pred_name]
+        consts_list = pred_consts_list_map[pred_name]
 
-    const_facts = []
-    for pred_name in pred_sym_consts_list_map.keys():
-        for sym_consts, consts in itertools.product(pred_sym_consts_list_map[pred_name], pred_consts_list_map[pred_name]):
-            const_facts.extend([construct_fact(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const.value}", [
-                               const]) for (const, sym_const) in zip(consts, 
-                               sym_consts)])
+        # iterate over all combinations of symbolic constants and constants
+        for sym_consts, consts in itertools.product(sym_consts_list, consts_list):
+            # create a list of facts and add it to the naive_facts list 
+            facts = [create_fact(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const.value}", [const]) for (const, sym_const) in zip(consts, sym_consts)]
+            naive_facts.extend(facts)
 
-    return const_facts
+    return naive_facts
 
 
-def construct_abstract_domain_facts(p: Program) -> List[Rule]:
+def create_abstract_domain_facts(p: Program) -> List[Rule]:
 
     sym_consts = collect(p, lambda x: isinstance(
         x, String) and x.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX))
 
-    def construct_fact(pred_name: str, args: List[String | Number]) -> Rule:
+    def create_fact(pred_name: str, args: List[String | Number]) -> Rule:
         return Rule(Literal(pred_name, args, True), [])
 
-    def construct_sym_cstr(sym_const: String, equiv_partition: List[List[String]]) -> List[str]:
+    def create_sym_cstr(sym_const: String, equiv_partition: List[List[String]]) -> List[str]:
         eq_relations = []
         neq_relations = []
 
@@ -221,7 +236,7 @@ def construct_abstract_domain_facts(p: Program) -> List[Rule]:
 
         return sort_and_to_string(eq_relations, neq_relations)
 
-    def construct_symcstr_facts() -> List[Rule] | List[Any]:
+    def create_symcstr_facts() -> List[Rule] | List[Any]:
         """Construct the facts of symbolic constraints."""
 
         symcstr_facts = []
@@ -240,28 +255,28 @@ def construct_abstract_domain_facts(p: Program) -> List[Rule]:
         for (sym_const, equiv_partition) in itertools.product(sym_consts, equiv_partitions):
 
             symconst_cstr = common.DELIMITER.join(
-                construct_sym_cstr(sym_const, equiv_partition))
+                create_sym_cstr(sym_const, equiv_partition))
 
-            symcstr_facts.append(construct_fact(
+            symcstr_facts.append(create_fact(
                 f"{common.DOMAIN_PREDICATE_PREFIX}{sym_const.value}", [String
                                                                        (symconst_cstr)]))
 
         return symcstr_facts
 
     # domain facts for to-be-joined constants
-    def construct_unifiable_facts() -> List[Rule]:
+    def create_unifiable_facts() -> List[Rule]:
         symconsts_unifiable_consts_map = analyse_symbolic_constants(p)
         unifiable_facts = []
 
         for symconsts, consts in symconsts_unifiable_consts_map.items():
             for symconst, const in itertools.product(symconsts, consts):
-                unifiable_facts.append(construct_fact(
+                unifiable_facts.append(create_fact(
                     f"{common.DOMAIN_PREDICATE_PREFIX}{symconst.value}", [const]))
 
         return unifiable_facts
 
-    sym_cstr_facts = construct_symcstr_facts()
-    unifiable_symconst_facts = construct_unifiable_facts()
+    sym_cstr_facts = create_symcstr_facts()
+    unifiable_symconst_facts = create_unifiable_facts()
 
     abstract_domain_facts = sym_cstr_facts + unifiable_symconst_facts
 
@@ -294,39 +309,68 @@ def construct_abstract_domain_facts(p: Program) -> List[Rule]:
     return abstract_domain_facts
 
 
+def transform_declarations(p: Program) -> Dict[str, List[str]]:
+
+    def extract_pred_symconstype_pair(fact):
+        # get the name of the predicate
+        name = fact.head.name
+
+        # get the list of symbolic constants and their types in the predicate arguments
+        symconst_types = [(arg, p.declarations[name][idx]) for idx, arg in 
+enumerate(fact.head.args) if isinstance(arg, String) and 
+arg.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX)]
+
+        return name, symconst_types
+
+    # collect facts
+    facts = collect(p, lambda x: isinstance(x, Rule) and not x.body)
+
+    pred_symconstype_map = utils.flatten_dict(
+        group_pred_consts_list(facts, lambda x: 
+extract_pred_symconstype_pair(x)))
+
+    # create a dictionary that maps symbolic constants to their types
+    symconst_type_map = {symconst: type for fact in facts for symconst, type in extract_pred_symconstype_pair(fact)[1]}
+
+    # symbolic_consts must have the same order as that in transform_into_meta_program
+    sym_consts = collect(p, lambda x: isinstance(x, String) and 
+        x.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX))
+
+    # create a list of the binding variable types
+    binding_var_types = [symconst_type_map[x] for x in sym_consts]
+
+    def transform_declaration(n: Rule) -> List[Tuple[Any, Any]]:
+
+        if not n.body:
+            # collect symbolic constant types for the current predicate
+            symconstypes_of_pred = pred_symconstype_map.get(n.head.name, [])
+
+            # EDB head declaration
+            res = [(n.head.name, p.declarations[n.head.name] +
+                    [type for _, type in symconstypes_of_pred])]
+
+            # domain declarations
+            for symconst, type in symconstypes_of_pred:
+                if p.declarations.get(f"{common.DOMAIN_PREDICATE_PREFIX}{symconst.value}", None) is None:
+                    res.append(
+                        (f"{common.DOMAIN_PREDICATE_PREFIX}{symconst.value}", [type]))
+
+            return res
+
+        else:
+            # IDB head declaration
+            return [(n.head.name, p.declarations[n.head.name] + binding_var_types)]
+
+    rules = collect(p, lambda x: isinstance(x, Rule))
+
+    transformed_declarations = {k: v for k, v in itertools.chain(
+        *map(transform_declaration, rules))}
+
+    return transformed_declarations
+
+
 def transform_into_meta_program(p: Program) -> Program:
-    """Transform a Datalog program into the meta-Datalog program. E.g.,
-    Original Datalog program: 
-    r(x, x) :- n(x).
-    r(x, y) :- r(x, z), e(z, y).
-    e(1, 2).
-    e(alpha, beta).
-    n(1).
-    n(2).
-    n(gamma).
-    Transformed meta-Datalog program:
-    r(x, x, t1, t2, t3) :-
-        n(x, t3),
-        domain_alpha(t1),
-        domain_beta(t2),
-        domain_gamma(t3).
-    r(x, y, t1, t2, t3) :-
-        r(x, z, t1, t2, t3),
-        e(z, y, t1, t2),
-        domain_alpha(t1),
-        domain_beta(t2),
-        domain_gamma(t3).
-    e(1, 2, t1, t2) :-
-        domain_alpha(t1),
-        domain_beta(t2).
-    e(t1, t2, t1, t2) :-
-        domain_alpha(t1),
-        domain_beta(t2).
-    n(1, t3) :-
-        domain_gamma(t3).
-    n(2, t3) :- domain_gamma(t3).
-    n(t3, t3) :-domain_gamma(t3).
-    """
+    """Transform a Datalog program into the meta-Datalog program."""
 
     symbolic_consts = collect(p, lambda x: (isinstance(
         x, String) or isinstance(x, Number)) and str(x.value).startswith(common.SYMBOLIC_CONSTANT_PREFIX))
@@ -334,8 +378,8 @@ def transform_into_meta_program(p: Program) -> Program:
     # collect facts
     facts = collect(p, lambda x: isinstance(x, Rule) and not x.body)
 
-    pred_sym_consts_map = utils.flatten_dict(constr_pred_consts_lst_map(
-        facts, lambda x: extract_pred_symbolic_consts(x, symbolic_consts)))
+    pred_sym_consts_map = utils.flatten_dict(group_pred_consts_list(
+        facts, lambda x: extract_pred_symconsts_pair(x)))
 
     edb_names = list(map(lambda x: x.head.name, facts))
 
@@ -350,42 +394,10 @@ def transform_into_meta_program(p: Program) -> Program:
         return [Variable(f"{common.BINDING_VARIABLE_PREFIX}{x.value}") for x in
                 pred_sym_consts_map.get(pred_name, [])]
 
-    def add_domain_literal(sym_arg: String | Number) -> Literal:
+    def add_domain_literal(sym_arg: Union[String, Number]) -> Literal:
         # E.g., domain_alpha(var_alpha)
         return Literal(f"{common.DOMAIN_PREDICATE_PREFIX}{sym_arg.value}",
                        [Variable(f"{common.BINDING_VARIABLE_PREFIX}{sym_arg.value}")], True)
-
-    def transform_declarations() -> Dict[str, List[str]]:
-
-        def transform_declaration(n: Rule) -> List[Tuple[Any, Any]]:
-            if not n.body:
-                symbolic_consts_of_n_pred = pred_sym_consts_map.get(
-                    n.head.name, [])
-
-                res = [(n.head.name, p.declarations[n.head.name] +
-                        [common.DEFAULT_SOUFFLE_TYPE] * len
-                        (symbolic_consts_of_n_pred))]  # EDB head declaration
-
-                res.extend(
-                    [(f"{common.DOMAIN_PREDICATE_PREFIX}{x.value}", [common.DEFAULT_SOUFFLE_TYPE])
-                     for x in symbolic_consts_of_n_pred if p.declarations.get(f"{common.DOMAIN_PREDICATE_PREFIX}{x.value}", None) is None]
-                )  # domain declarations
-
-                return res
-
-            else:
-                # IDB head declaration
-                return [(n.head.name, p.declarations[n.head.name] + [common.
-                                                                     DEFAULT_SOUFFLE_TYPE]
-                         * len
-                         (binding_vars))]
-
-        rules = collect(p, lambda x: isinstance(x, Rule))
-
-        transformed_declarations = {k: v for k, v in itertools.chain(
-            *map(transform_declaration, rules))}
-
-        return transformed_declarations
 
     def add_binding_vars(n):
         if isinstance(n, Rule):
@@ -403,8 +415,7 @@ def transform_into_meta_program(p: Program) -> Program:
                 # rule
                 replaced_head = transform(n.head, lambda x:
                                           add_binding_vars_to_literal(
-                                              x, binding_vars) if isinstance(x,
-                                                                             Literal) else x)
+                                              x, binding_vars) if isinstance(x, Literal) else x)
 
                 replaced_body = list(map(lambda l: transform(l, lambda x: add_binding_vars_to_literal(x, binding_vars_of_pred(
                     x.name) if x.name in edb_names else binding_vars) if
@@ -416,15 +427,12 @@ def transform_into_meta_program(p: Program) -> Program:
 
         return n
 
-    transformed_decls = transform_declarations()
-    p.declarations.update(transformed_decls)
-
     return transform(p, add_binding_vars)
 
 
-if __name__ == "__main__":
-
-    program_text = """
+@pytest.fixture
+def program_text():
+    return """
 .decl reach_no_call(from:number, to:number, v:symbol)
 .decl call(f:symbol, node:number, v:symbol)
 .decl final(n:number)
@@ -474,15 +482,87 @@ label(5).
 variable("x").
     """
 
+
+def test_naive_meta_program_transformation(program_text):
+    answer = """
+.decl reach_no_call(v0:number, v1:number, v2:symbol, v3:symbol, v4:number, v5:symbol, v6:number)
+.decl call(v0:symbol, v1:number, v2:symbol, v3:symbol, v4:number, v5:symbol)
+.decl final(v0:number, v1:number)
+.decl flow(v0:number, v1:number)
+.decl correct_usage(v0:number, v1:symbol, v2:number, v3:symbol, v4:number)
+.decl incorrect_usage(v0:number, v1:symbol, v2:number, v3:symbol, v4:number)
+.decl label(v0:number)
+.decl variable(v0:symbol)
+.decl _symlog_domain__symlog_symbolic_open(v0:symbol)
+.decl _symlog_domain__symlog_symbolic_2(v0:number)
+.decl _symlog_domain__symlog_symbolic_x(v0:symbol)
+.decl _symlog_domain__symlog_symbolic_1(v0:number)
+.input final
+.input call
+.input flow
+.input label
+.input variable
+.output correct_usage
+correct_usage(L, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_1) :- call("open", L, _, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x), !incorrect_usage(L, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_1), label(L), _symlog_domain__symlog_symbolic_open(_symlog_binding__symlog_symbolic_open), _symlog_domain__symlog_symbolic_2(_symlog_binding__symlog_symbolic_2), _symlog_domain__symlog_symbolic_x(_symlog_binding__symlog_symbolic_x), _symlog_domain__symlog_symbolic_1(_symlog_binding__symlog_symbolic_1).
+incorrect_usage(L, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_1) :- call("open", L, V, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x), flow(L, L1), final(F, _symlog_binding__symlog_symbolic_1), reach_no_call(L1, F, V, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_1), _symlog_domain__symlog_symbolic_open(_symlog_binding__symlog_symbolic_open), _symlog_domain__symlog_symbolic_2(_symlog_binding__symlog_symbolic_2), _symlog_domain__symlog_symbolic_x(_symlog_binding__symlog_symbolic_x), _symlog_domain__symlog_symbolic_1(_symlog_binding__symlog_symbolic_1).
+reach_no_call(X, X, V, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_1) :- label(X), !call("close", X, V, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x), variable(V), _symlog_domain__symlog_symbolic_open(_symlog_binding__symlog_symbolic_open), _symlog_domain__symlog_symbolic_2(_symlog_binding__symlog_symbolic_2), _symlog_domain__symlog_symbolic_x(_symlog_binding__symlog_symbolic_x), _symlog_domain__symlog_symbolic_1(_symlog_binding__symlog_symbolic_1).
+reach_no_call(X, Y, V, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_1) :- !call("close", X, V, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x), flow(X, Z), reach_no_call(Z, Y, V, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_1), _symlog_domain__symlog_symbolic_open(_symlog_binding__symlog_symbolic_open), _symlog_domain__symlog_symbolic_2(_symlog_binding__symlog_symbolic_2), _symlog_domain__symlog_symbolic_x(_symlog_binding__symlog_symbolic_x), _symlog_domain__symlog_symbolic_1(_symlog_binding__symlog_symbolic_1).
+call("open", 1, "x", _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x) :- _symlog_domain__symlog_symbolic_open(_symlog_binding__symlog_symbolic_open), _symlog_domain__symlog_symbolic_2(_symlog_binding__symlog_symbolic_2), _symlog_domain__symlog_symbolic_x(_symlog_binding__symlog_symbolic_x).
+call("close", 4, "x", _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x) :- _symlog_domain__symlog_symbolic_open(_symlog_binding__symlog_symbolic_open), _symlog_domain__symlog_symbolic_2(_symlog_binding__symlog_symbolic_2), _symlog_domain__symlog_symbolic_x(_symlog_binding__symlog_symbolic_x).
+call(_symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x) :- _symlog_domain__symlog_symbolic_open(_symlog_binding__symlog_symbolic_open), _symlog_domain__symlog_symbolic_2(_symlog_binding__symlog_symbolic_2), _symlog_domain__symlog_symbolic_x(_symlog_binding__symlog_symbolic_x).
+final(5, _symlog_binding__symlog_symbolic_1) :- _symlog_domain__symlog_symbolic_1(_symlog_binding__symlog_symbolic_1).
+final(_symlog_binding__symlog_symbolic_1, _symlog_binding__symlog_symbolic_1) :- _symlog_domain__symlog_symbolic_1(_symlog_binding__symlog_symbolic_1).
+flow(1, 2).
+flow(2, 3).
+flow(3, 4).
+flow(4, 5).
+label(1).
+label(2).
+label(3).
+label(4).
+label(5).
+variable("x").
+_symlog_domain__symlog_symbolic_open("open").
+_symlog_domain__symlog_symbolic_2(1).
+_symlog_domain__symlog_symbolic_x("x").
+_symlog_domain__symlog_symbolic_open("close").
+_symlog_domain__symlog_symbolic_2(4).
+_symlog_domain__symlog_symbolic_x("x").
+_symlog_domain__symlog_symbolic_1(5).
+"""
+
     program = parse(program_text)
 
     transformed = transform_into_meta_program(program)
 
-    facts = construct_naive_domain_facts(program)
+    declarations = transform_declarations(program)
 
-    abstract_facts = construct_abstract_domain_facts(program)
+    facts = create_naive_domain_facts(program)
 
-    transformed.rules.extend(facts + abstract_facts)
+    abstract_facts = create_abstract_domain_facts(program)
 
-    print("\nTransformed program:")
-    print(pprint(transformed))
+    transformed.declarations.update(declarations)
+
+    assert pprint(transformed).strip() == answer.strip()
+
+
+def convert_dict_values_to_sets(my_dict):
+    # Convert each value in the dictionary to a set and join the keys with a comma
+    return {','.join([i.value for i in k]): set([i.value for i in v]) for k, v in my_dict.items()}
+
+
+def test_symconst_unifiable_consts_mapping(program_text):
+    program = parse(program_text)
+    symconst_unifiable_consts_map = analyse_symbolic_constants(program)
+
+    new_dict = convert_dict_values_to_sets(symconst_unifiable_consts_map)
+
+    answer = {
+        '_symlog_symbolic_open': set([]),
+        '_symlog_symbolic_2': set([2, 5, 4, 1, 3]),
+        '_symlog_symbolic_x': set(['x']),
+        '_symlog_symbolic_1': set([2, 5, 4, 1, 3]),
+    }
+
+    assert new_dict == answer
+
