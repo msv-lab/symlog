@@ -543,9 +543,9 @@ reach_no_call(X, Y, V) :-
   reach_no_call(Z, Y, V).
 call("open", 1, "x").
 call("close", 4, "x").
-call("_symlog_symbolic_open", "_symlog_symbolic_2", "_symlog_symbolic_x").
+call("symlog_symbolic_open", "symlog_symbolic_2", "symlog_symbolic_x").
 final(5).
-final("_symlog_symbolic_1").
+final("symlog_symbolic_1").
 flow(1, 2).
 flow(2, 3).
 flow(3, 4).
@@ -569,25 +569,25 @@ def test_naive_meta_program_transformation(program_text):
 .decl incorrect_usage(v0:number, v1:symbol, v2:number, v3:symbol, v4:number)
 .decl label(v0:number)
 .decl variable(v0:symbol)
-.decl _symlog_domain__symlog_symbolic_open(v0:symbol)
-.decl _symlog_domain__symlog_symbolic_2(v0:number)
-.decl _symlog_domain__symlog_symbolic_x(v0:symbol)
-.decl _symlog_domain__symlog_symbolic_1(v0:number)
+.decl symlog_domain_symlog_symbolic_open(v0:symbol)
+.decl symlog_domain_symlog_symbolic_2(v0:number)
+.decl symlog_domain_symlog_symbolic_x(v0:symbol)
+.decl symlog_domain_symlog_symbolic_1(v0:number)
 .input final
 .input call
 .input flow
 .input label
 .input variable
 .output correct_usage
-correct_usage(L, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_1) :- call("open", L, _, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x), !incorrect_usage(L, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_1), label(L), _symlog_domain__symlog_symbolic_open(_symlog_binding__symlog_symbolic_open), _symlog_domain__symlog_symbolic_2(_symlog_binding__symlog_symbolic_2), _symlog_domain__symlog_symbolic_x(_symlog_binding__symlog_symbolic_x), _symlog_domain__symlog_symbolic_1(_symlog_binding__symlog_symbolic_1).
-incorrect_usage(L, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_1) :- call("open", L, V, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x), flow(L, L1), final(F, _symlog_binding__symlog_symbolic_1), reach_no_call(L1, F, V, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_1), _symlog_domain__symlog_symbolic_open(_symlog_binding__symlog_symbolic_open), _symlog_domain__symlog_symbolic_2(_symlog_binding__symlog_symbolic_2), _symlog_domain__symlog_symbolic_x(_symlog_binding__symlog_symbolic_x), _symlog_domain__symlog_symbolic_1(_symlog_binding__symlog_symbolic_1).
-reach_no_call(X, X, V, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_1) :- label(X), !call("close", X, V, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x), variable(V), _symlog_domain__symlog_symbolic_open(_symlog_binding__symlog_symbolic_open), _symlog_domain__symlog_symbolic_2(_symlog_binding__symlog_symbolic_2), _symlog_domain__symlog_symbolic_x(_symlog_binding__symlog_symbolic_x), _symlog_domain__symlog_symbolic_1(_symlog_binding__symlog_symbolic_1).
-reach_no_call(X, Y, V, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_1) :- !call("close", X, V, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x), flow(X, Z), reach_no_call(Z, Y, V, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_1), _symlog_domain__symlog_symbolic_open(_symlog_binding__symlog_symbolic_open), _symlog_domain__symlog_symbolic_2(_symlog_binding__symlog_symbolic_2), _symlog_domain__symlog_symbolic_x(_symlog_binding__symlog_symbolic_x), _symlog_domain__symlog_symbolic_1(_symlog_binding__symlog_symbolic_1).
-call("open", 1, "x", _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x) :- _symlog_domain__symlog_symbolic_open(_symlog_binding__symlog_symbolic_open), _symlog_domain__symlog_symbolic_2(_symlog_binding__symlog_symbolic_2), _symlog_domain__symlog_symbolic_x(_symlog_binding__symlog_symbolic_x).
-call("close", 4, "x", _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x) :- _symlog_domain__symlog_symbolic_open(_symlog_binding__symlog_symbolic_open), _symlog_domain__symlog_symbolic_2(_symlog_binding__symlog_symbolic_2), _symlog_domain__symlog_symbolic_x(_symlog_binding__symlog_symbolic_x).
-call(_symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x, _symlog_binding__symlog_symbolic_open, _symlog_binding__symlog_symbolic_2, _symlog_binding__symlog_symbolic_x) :- _symlog_domain__symlog_symbolic_open(_symlog_binding__symlog_symbolic_open), _symlog_domain__symlog_symbolic_2(_symlog_binding__symlog_symbolic_2), _symlog_domain__symlog_symbolic_x(_symlog_binding__symlog_symbolic_x).
-final(5, _symlog_binding__symlog_symbolic_1) :- _symlog_domain__symlog_symbolic_1(_symlog_binding__symlog_symbolic_1).
-final(_symlog_binding__symlog_symbolic_1, _symlog_binding__symlog_symbolic_1) :- _symlog_domain__symlog_symbolic_1(_symlog_binding__symlog_symbolic_1).
+correct_usage(L, symlog_binding_symlog_symbolic_open, symlog_binding_symlog_symbolic_2, symlog_binding_symlog_symbolic_x, symlog_binding_symlog_symbolic_1) :- call("open", L, _, symlog_binding_symlog_symbolic_open, symlog_binding_symlog_symbolic_2, symlog_binding_symlog_symbolic_x), !incorrect_usage(L, symlog_binding_symlog_symbolic_open, symlog_binding_symlog_symbolic_2, symlog_binding_symlog_symbolic_x, symlog_binding_symlog_symbolic_1), label(L), symlog_domain_symlog_symbolic_open(symlog_binding_symlog_symbolic_open), symlog_domain_symlog_symbolic_2(symlog_binding_symlog_symbolic_2), symlog_domain_symlog_symbolic_x(symlog_binding_symlog_symbolic_x), symlog_domain_symlog_symbolic_1(symlog_binding_symlog_symbolic_1).
+incorrect_usage(L, symlog_binding_symlog_symbolic_open, symlog_binding_symlog_symbolic_2, symlog_binding_symlog_symbolic_x, symlog_binding_symlog_symbolic_1) :- call("open", L, V, symlog_binding_symlog_symbolic_open, symlog_binding_symlog_symbolic_2, symlog_binding_symlog_symbolic_x), flow(L, L1), final(F, symlog_binding_symlog_symbolic_1), reach_no_call(L1, F, V, symlog_binding_symlog_symbolic_open, symlog_binding_symlog_symbolic_2, symlog_binding_symlog_symbolic_x, symlog_binding_symlog_symbolic_1), symlog_domain_symlog_symbolic_open(symlog_binding_symlog_symbolic_open), symlog_domain_symlog_symbolic_2(symlog_binding_symlog_symbolic_2), symlog_domain_symlog_symbolic_x(symlog_binding_symlog_symbolic_x), symlog_domain_symlog_symbolic_1(symlog_binding_symlog_symbolic_1).
+reach_no_call(X, X, V, symlog_binding_symlog_symbolic_open, symlog_binding_symlog_symbolic_2, symlog_binding_symlog_symbolic_x, symlog_binding_symlog_symbolic_1) :- label(X), !call("close", X, V, symlog_binding_symlog_symbolic_open, symlog_binding_symlog_symbolic_2, symlog_binding_symlog_symbolic_x), variable(V), symlog_domain_symlog_symbolic_open(symlog_binding_symlog_symbolic_open), symlog_domain_symlog_symbolic_2(symlog_binding_symlog_symbolic_2), symlog_domain_symlog_symbolic_x(symlog_binding_symlog_symbolic_x), symlog_domain_symlog_symbolic_1(symlog_binding_symlog_symbolic_1).
+reach_no_call(X, Y, V, symlog_binding_symlog_symbolic_open, symlog_binding_symlog_symbolic_2, symlog_binding_symlog_symbolic_x, symlog_binding_symlog_symbolic_1) :- !call("close", X, V, symlog_binding_symlog_symbolic_open, symlog_binding_symlog_symbolic_2, symlog_binding_symlog_symbolic_x), flow(X, Z), reach_no_call(Z, Y, V, symlog_binding_symlog_symbolic_open, symlog_binding_symlog_symbolic_2, symlog_binding_symlog_symbolic_x, symlog_binding_symlog_symbolic_1), symlog_domain_symlog_symbolic_open(symlog_binding_symlog_symbolic_open), symlog_domain_symlog_symbolic_2(symlog_binding_symlog_symbolic_2), symlog_domain_symlog_symbolic_x(symlog_binding_symlog_symbolic_x), symlog_domain_symlog_symbolic_1(symlog_binding_symlog_symbolic_1).
+call("open", 1, "x", symlog_binding_symlog_symbolic_open, symlog_binding_symlog_symbolic_2, symlog_binding_symlog_symbolic_x) :- symlog_domain_symlog_symbolic_open(symlog_binding_symlog_symbolic_open), symlog_domain_symlog_symbolic_2(symlog_binding_symlog_symbolic_2), symlog_domain_symlog_symbolic_x(symlog_binding_symlog_symbolic_x).
+call("close", 4, "x", symlog_binding_symlog_symbolic_open, symlog_binding_symlog_symbolic_2, symlog_binding_symlog_symbolic_x) :- symlog_domain_symlog_symbolic_open(symlog_binding_symlog_symbolic_open), symlog_domain_symlog_symbolic_2(symlog_binding_symlog_symbolic_2), symlog_domain_symlog_symbolic_x(symlog_binding_symlog_symbolic_x).
+call(symlog_binding_symlog_symbolic_open, symlog_binding_symlog_symbolic_2, symlog_binding_symlog_symbolic_x, symlog_binding_symlog_symbolic_open, symlog_binding_symlog_symbolic_2, symlog_binding_symlog_symbolic_x) :- symlog_domain_symlog_symbolic_open(symlog_binding_symlog_symbolic_open), symlog_domain_symlog_symbolic_2(symlog_binding_symlog_symbolic_2), symlog_domain_symlog_symbolic_x(symlog_binding_symlog_symbolic_x).
+final(5, symlog_binding_symlog_symbolic_1) :- symlog_domain_symlog_symbolic_1(symlog_binding_symlog_symbolic_1).
+final(symlog_binding_symlog_symbolic_1, symlog_binding_symlog_symbolic_1) :- symlog_domain_symlog_symbolic_1(symlog_binding_symlog_symbolic_1).
 flow(1, 2).
 flow(2, 3).
 flow(3, 4).
@@ -598,13 +598,13 @@ label(3).
 label(4).
 label(5).
 variable("x").
-_symlog_domain__symlog_symbolic_open("open").
-_symlog_domain__symlog_symbolic_2(1).
-_symlog_domain__symlog_symbolic_x("x").
-_symlog_domain__symlog_symbolic_open("close").
-_symlog_domain__symlog_symbolic_2(4).
-_symlog_domain__symlog_symbolic_x("x").
-_symlog_domain__symlog_symbolic_1(5).
+symlog_domain_symlog_symbolic_open("open").
+symlog_domain_symlog_symbolic_2(1).
+symlog_domain_symlog_symbolic_x("x").
+symlog_domain_symlog_symbolic_open("close").
+symlog_domain_symlog_symbolic_2(4).
+symlog_domain_symlog_symbolic_x("x").
+symlog_domain_symlog_symbolic_1(5).
 """
 
     program = parse(program_text)
@@ -634,17 +634,70 @@ def test_symconst_unifiable_consts_mapping(program_text):
     new_dict = convert_dict_values_to_sets(symconst_unifiable_consts_map)
 
     answer = {
-        '_symlog_symbolic_open': set([]),
-        '_symlog_symbolic_2': set([2, 5, 4, 1, 3]),
-        '_symlog_symbolic_x': set(['x']),
-        '_symlog_symbolic_1': set([2, 5, 4, 1, 3]),
+        'symlog_symbolic_open': set([]),
+        'symlog_symbolic_2': set([1, 2, 3, 4, 5]),
+        'symlog_symbolic_x': set(['x']),
+        'symlog_symbolic_1': set([1, 2, 3, 4, 5]),
     }
 
     assert new_dict == answer
 
 
 if __name__ == '__main__':
+
     program_text = """
+.decl reach_no_call(from:number, to:number, v:symbol)
+.decl call(f:symbol, node:number, v:symbol)
+.decl final(n:number)
+.decl flow(x:number, y:number)
+.decl correct_usage(n:number)
+.decl incorrect_usage(n:number)
+.decl label(l:number)
+.decl variable(v:symbol)
+.input final
+.input call    
+.input flow
+.input label     
+.input variable
+.output correct_usage
+correct_usage(L) :-
+   call("open", L, _),
+   ! incorrect_usage(L),
+   label(L).
+incorrect_usage(L) :-
+  call("open", L, V),
+  flow(L, L1),
+  final(F),
+  reach_no_call(L1, F, V).
+  
+reach_no_call(X, X, V) :-
+  label(X),
+  ! call("close", X, V),
+  variable(V).
+reach_no_call(X, Y, V) :-
+  ! call("close", X, V),
+  flow(X, Z),
+  reach_no_call(Z, Y, V).
+call("open", 1, "x").
+call("close", 4, "x").
+call("symlog_symbolic_open", "symlog_symbolic_2", "symlog_symbolic_x").
+final(5).
+final("symlog_symbolic_1").
+flow(1, 2).
+flow(2, 3).
+flow(3, 4).
+flow(4, 5).
+label(1).
+label(2).
+label(3).
+label(4).
+label(5).
+variable("x").
+    """
+
+    test_symconst_unifiable_consts_mapping(program_text)
+
+    program_text2 = """
     
 .decl Primitive(type: symbol)
 Primitive("boolean").
@@ -803,7 +856,7 @@ ReachableNullAt(meth, index, type),
 InstructionLine(meth, index, line, file).
 """
 
-    program = parse(program_text)
+    program = parse(program_text2)
 
     facts = load_relations('/home/liuyu/info3600-bugchecker-benchmarks/digger/logic/doop_logic/facts')
     database = load_relations('/home/liuyu/info3600-bugchecker-benchmarks/digger/logic/doop_logic/database')
