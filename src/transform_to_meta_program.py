@@ -1,5 +1,5 @@
 import common
-from souffle import collect, transform, parse, pprint, Variable, Literal, Rule, String, Number, Program
+from souffle import collect, transform, parse, pprint, Variable, Literal, Rule, String, Number, Program, load_relations
 import utils
 
 from typing import Any, List, Dict, Set, Tuple, Optional, DefaultDict, Union
@@ -54,14 +54,14 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[Union[String, Numbe
             set)
 
         def var_in_pos_lit(arg: Union[Variable, String, Number], lit: Literal) -> bool:
-            if isinstance(arg, Variable) and arg in lit.args and lit.positive:
+            if isinstance(arg, Variable) and isinstance(lit, Literal) and arg in lit.args and lit.positive:
                 return True
             return False
 
         def find_arg_at_loc(loc: Loc, rule: Rule) -> Optional[Union[String, Number, Variable]]:
             pred_name, idx = loc
             for l in rule.body:
-                if l.name == pred_name:
+                if isinstance(l, Literal) and l.name == pred_name:
                     return l.args[idx]
             return None
 
@@ -93,7 +93,7 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[Union[String, Numbe
                     if isinstance(arg, String) and arg.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX):
                         eloc_symvalues_map[(rule.head.name, i)].add(arg)
             else:
-                for lit in [rule.head] + list(rule.body):
+                for lit in [rule.head] + [l for l in rule.body if isinstance(l, Literal)]:
                     for i, arg in enumerate(lit.args):
                         if isinstance(arg, String) or isinstance(arg, Number):
                             # store loc, and corresp constant appearing in rules
@@ -124,6 +124,8 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[Union[String, Numbe
             is_changed = False
 
             for hloc in hloc_blocs_map.keys():
+                if not hloc_blocs_map[hloc]:
+                    continue
                 union_blocs_values = set.union(
                     *[loc_values_map[bloc] for bloc in hloc_blocs_map[hloc]])
 
@@ -160,7 +162,7 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[Union[String, Numbe
         # print the loc values map
         print("\nloc_values_map: \n", "\n".join(
             [f"{k} -> {set(map(lambda x: x.value, v))}" for k, v in
-             init_loc_values_map.items()]))
+             loc_values_map.items()]))
 
         print("\n symconsts_unifiable_consts_map: \n" +
               '\n'.join([f"{','.join([i.value for i in k])} -> {[i.value for i in v]}" for k, v in unifiable_consts_map.items()]))
@@ -381,7 +383,8 @@ def transform_into_meta_program(p: Program) -> Program:
     pred_sym_consts_map = utils.flatten_dict(group_pred_consts_list(
         facts, lambda x: extract_pred_symconsts_pair(x)))
 
-    edb_names = list(map(lambda x: x.head.name, facts))
+    edb_names = p.declarations.keys() - set([r.head.name for r in collect(p, lambda x: isinstance(x, Rule) and x.body)])
+    special_pred_names = edb_names | {'contains', 'substr'}
 
     binding_vars = [
         Variable(f"{common.BINDING_VARIABLE_PREFIX}{x.value}") for x in
@@ -418,7 +421,7 @@ def transform_into_meta_program(p: Program) -> Program:
                                               x, binding_vars) if isinstance(x, Literal) else x)
 
                 replaced_body = list(map(lambda l: transform(l, lambda x: add_binding_vars_to_literal(x, binding_vars_of_pred(
-                    x.name) if x.name in edb_names else binding_vars) if
+                    x.name) if x.name in special_pred_names else binding_vars) if
                     isinstance(x, Literal) else x), n.body))
 
                 domain_body = [add_domain_literal(x) for x in symbolic_consts]
@@ -566,3 +569,203 @@ def test_symconst_unifiable_consts_mapping(program_text):
 
     assert new_dict == answer
 
+
+if __name__ == '__main__':
+    program_text = """
+    
+.decl Primitive(type: symbol)
+Primitive("boolean").
+Primitive("short").
+Primitive("int").
+Primitive("long").
+Primitive("float").
+Primitive("double").
+Primitive("char").
+Primitive("byte").
+
+
+.decl InstructionLine(m: symbol, i: symbol, l: symbol, f: symbol)
+.decl VarPointsTo(hctx: symbol, a: symbol, ctx: symbol, v: symbol)
+.decl CallGraphEdge(ctx: symbol, ins: symbol, hctx: symbol, sig: symbol)
+.decl Reachable(m: symbol)
+.decl SpecialMethodInvocation(instruction:symbol, i: symbol, sig: symbol, base:symbol, m: symbol)
+.decl LoadArrayIndex(ins: symbol, i: symbol, to: symbol, base: symbol, m: symbol)
+.decl StoreArrayIndex(ins: symbol, i: symbol, from: symbol, base: symbol, m: symbol)
+.decl StoreInstanceField(ins: symbol, i: symbol, from: symbol, base: symbol, sig: symbol, m: symbol)
+.decl LoadInstanceField(ins: symbol, i: symbol, to: symbol, base: symbol, sig: symbol, m: symbol)
+.decl VirtualMethodInvocation(ins: symbol, i: symbol, sig: symbol,  base: symbol, m: symbol)
+.decl ThrowNull(ins: symbol, i: symbol, m: symbol)
+.decl LoadStaticField(ins: symbol, i: symbol, to: symbol, sig: symbol, m: symbol)
+.decl StoreStaticField(ins: symbol, i: symbol, from: symbol, sig: symbol, m: symbol)
+.decl AssignCastNull(ins: symbol, i: symbol, to: symbol, t: symbol, m: symbol)
+.decl AssignUnop(ins: symbol, i: symbol, to: symbol, m: symbol)
+.decl AssignBinop(ins: symbol, i: symbol, to: symbol, m: symbol)
+.decl AssignOperFrom(ins: symbol, from: symbol)
+.decl Var_Type(var: symbol, type: symbol)
+.decl EnterMonitor(ins: symbol, i: symbol, to: symbol, m: symbol)
+.decl ExitMonitor(ins: symbol, i: symbol, to: symbol, m: symbol)
+
+
+.decl VarPointsToNull(v: symbol)
+
+.decl NullAt(m: symbol, i: symbol, type: symbol)
+
+.decl ReachableNullAt(m: symbol, i: symbol, type: symbol)
+
+.decl ReachableNullAtLine(m: symbol, i: symbol, f: symbol, l: symbol, type:
+symbol)
+
+.output ReachableNullAtLine
+
+VarPointsToNull(var) :- VarPointsTo(_, alloc, _, var),
+						alloc = "<<null pseudo heap>>".
+
+VarPointsToNull(var) :- AssignCastNull(_,_,var,_,_).
+
+
+
+NullAt(meth, index, "Throw NullPointerException") :-
+CallGraphEdge(_, a, _, b),
+contains("java.lang.NullPointerException", a),
+SpecialMethodInvocation(a, index, b, _, meth).
+
+
+NullAt(meth, index, "Load Array Index") :-
+VarPointsToNull(var),
+LoadArrayIndex(_, index, _, var, meth).
+
+NullAt(meth, index, "Load Array Index") :-
+!VarPointsTo(_,_,_,var),
+LoadArrayIndex(_, index, _, var, meth).
+
+
+NullAt(meth, index, "Store Array Index") :-
+VarPointsToNull(var),
+StoreArrayIndex(_, index, _, var, meth).
+
+NullAt(meth, index, "Store Array Index") :-
+!VarPointsTo(_,_,_,var),
+StoreArrayIndex(_, index, _, var, meth).
+
+
+NullAt(meth, index, "Store Instance Field") :-
+VarPointsToNull(var),
+StoreInstanceField(_, index, _, var, _, meth),
+!StoreArrayIndex(_, _, _, var, meth).
+
+NullAt(meth, index, "Store Instance Field") :-
+!VarPointsTo(_,_,_,var),
+StoreInstanceField(_, index, _, var, _, meth),
+!StoreArrayIndex(_, _, _, var, meth).
+
+
+NullAt(meth, index, "Load Instance Field") :-
+VarPointsToNull(var),
+LoadInstanceField(_, index, _, var, _, meth),
+!LoadArrayIndex(_, _, _, var, meth).
+
+NullAt(meth, index, "Load Instance Field") :-
+!VarPointsTo(_,_,_,var),
+LoadInstanceField(_, index, _, var, _, meth),
+!LoadArrayIndex(_, _, _, var, meth).
+
+NullAt(meth, index, "Virtual Method Invocation") :-
+VarPointsToNull(var),
+VirtualMethodInvocation(_, index, _, var, meth).
+
+NullAt(meth, index, "Virtual Method Invocation") :-
+!VarPointsTo(_,_,_,var),
+VirtualMethodInvocation(_, index, _, var, meth).
+
+NullAt(meth, index, "Special Method Invocation") :-
+VarPointsToNull(var),
+SpecialMethodInvocation(_, index, _, var, meth).
+
+NullAt(meth, index, "Special Method Invocation") :-
+!VarPointsTo(_,_,_,var),
+SpecialMethodInvocation(_, index, _, var, meth).
+
+
+NullAt(meth, index, "Unary Operator") :-
+VarPointsToNull(var),
+AssignUnop(ins, index, _, meth),
+AssignOperFrom(ins, var).
+
+NullAt(meth, index, "Unary Operator") :-
+!VarPointsTo(_,_,_,var),
+AssignUnop(ins, index, _, meth),
+AssignOperFrom(ins, var),
+Var_Type(var, type),
+!Primitive(type).
+
+NullAt(meth, index, "Binary Operator") :-
+VarPointsToNull(var),
+AssignBinop(ins, index, _, meth),
+AssignOperFrom(ins, var).
+
+NullAt(meth, index, "Binary Operator") :-
+!VarPointsTo(_,_,_,var),
+AssignBinop(ins, index, _, meth),
+AssignOperFrom(ins, var),
+Var_Type(var, type),
+!Primitive(type).
+
+NullAt(meth, index, "Throw Null") :-
+ThrowNull(_, index, meth).
+
+NullAt(meth, index, "Enter Monitor (Synchronized)") :-
+VarPointsToNull(var),
+EnterMonitor(_, index, var, meth).
+
+NullAt(meth, index, "Enter Monitor (Synchronized)") :-
+!VarPointsTo(_,_,_,var),
+Var_Type(var, type),
+!Primitive(type),
+EnterMonitor(_, index, var, meth).
+
+ReachableNullAt(meth, index, type) :- NullAt(meth, index, type), Reachable(meth).
+
+ReachableNullAtLine(meth, index, file, line, type) :- 
+ReachableNullAt(meth, index, type), 
+InstructionLine(meth, index, line, file).
+"""
+
+    program = parse(program_text)
+
+    facts = load_relations('/home/liuyu/info3600-bugchecker-benchmarks/digger/logic/doop_logic/facts')
+    database = load_relations('/home/liuyu/info3600-bugchecker-benchmarks/digger/logic/doop_logic/database')
+    # merge two dictionaries
+    input_facts = {**facts, **database}
+
+    # transform input_fact into a list of fact rules
+    fact_rules = []
+    for name, relations in input_facts.items():
+        if name not in program.declarations:
+            continue
+        for row in relations:
+            args = [String(x) for x in row]
+            fact_rules.append(Rule(Literal(name, args, True), []))
+
+    sym_cnt = 0
+    def add_sym_fact(name, sym_cnt):
+        arity = len(program.declarations[name])
+        args = [String(f"{common.SYMBOLIC_CONSTANT_PREFIX}{sym_cnt + idx}") for idx in range(arity)]
+        fact_rules.append(Rule(Literal(name, args, True), []))
+        sym_cnt += arity
+        return sym_cnt
+    
+    # sym_cnt = add_sym_fact('VarPointsTo', sym_cnt)
+    # sym_cnt = add_sym_fact('LoadArrayIndex', sym_cnt)
+    sym_cnt = add_sym_fact('Reachable', sym_cnt)
+
+    program.rules.extend(fact_rules)
+
+    transformed = transform_into_meta_program(program)
+    declarations = transform_declarations(program)
+    facts = create_naive_domain_facts(program)
+    abstract_facts = create_abstract_domain_facts(program)
+
+    transformed.rules.extend(facts + abstract_facts)
+    transformed.declarations.update(declarations)
+    with open('tests/transformed.dl', 'w') as f:
+        f.write(pprint(transformed))
