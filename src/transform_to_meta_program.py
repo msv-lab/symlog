@@ -539,7 +539,7 @@ _symlog_domain__symlog_symbolic_1(5).
 
     facts = create_naive_domain_facts(program)
 
-    abstract_facts = create_abstract_domain_facts(program)
+    transformed.rules.extend(facts)
 
     transformed.declarations.update(declarations)
 
