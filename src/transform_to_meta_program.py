@@ -164,11 +164,20 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[Union[String, Numbe
         unifiable_consts_map = dict()
 
         for loc, symvalues in eloc_symvalues_map.items():
-            unifiable_consts_map[tuple(symvalues)] = set(
+            unifiable_consts_map[tuple(symvalues)] = set( # set of in principle to-be-joined constants
                 itertools.chain(
-                    *[loc_values_map[jloc] for jloc in symloc_unifiable_locs_map[loc]]
+                    *[loc_values_map[sloc] for sloc in symloc_unifiable_locs_map[loc]]
                 )
-            )  # set of in principle to-be-joined constants
+            ) | loc_values_map[loc]
+
+        # FIXME: uncomment above and remove below
+        # for loc, symvalues in eloc_symvalues_map.items():
+        #     unifiable_consts_map[tuple(symvalues)] = set(
+        #         itertools.chain(
+        #             *[loc_values_map[sloc] for sloc in symloc_unifiable_locs_map[loc]]
+        #         )
+        #     ) # set of in principle to-be-joined constants
+
 
         return unifiable_consts_map
 
@@ -320,7 +329,9 @@ def create_abstract_domain_facts(p: Program) -> List[Rule]:
     sym_cstr_facts = create_symcstr_facts()
     unifiable_symconst_facts = create_unifiable_facts()
 
-    abstract_domain_facts = sym_cstr_facts + unifiable_symconst_facts
+    # abstract_domain_facts = sym_cstr_facts + unifiable_symconst_facts
+    # FIXME: uncomment above line and remove the following line
+    abstract_domain_facts = unifiable_symconst_facts
 
     if DEBUG:
         print(
@@ -695,159 +706,36 @@ label(5).
 variable("x").
     """
 
-    test_symconst_unifiable_consts_mapping(program_text)
+    # test_symconst_unifiable_consts_mapping(program_text)
 
     program_text2 = """
-    
-.decl Primitive(type: symbol)
-Primitive("boolean").
-Primitive("short").
-Primitive("int").
-Primitive("long").
-Primitive("float").
-Primitive("double").
-Primitive("char").
-Primitive("byte").
-
-
 .decl InstructionLine(m: symbol, i: symbol, l: symbol, f: symbol)
 .decl VarPointsTo(hctx: symbol, a: symbol, ctx: symbol, v: symbol)
-.decl CallGraphEdge(ctx: symbol, ins: symbol, hctx: symbol, sig: symbol)
 .decl Reachable(m: symbol)
 .decl SpecialMethodInvocation(instruction:symbol, i: symbol, sig: symbol, base:symbol, m: symbol)
 .decl LoadArrayIndex(ins: symbol, i: symbol, to: symbol, base: symbol, m: symbol)
-.decl StoreArrayIndex(ins: symbol, i: symbol, from: symbol, base: symbol, m: symbol)
-.decl StoreInstanceField(ins: symbol, i: symbol, from: symbol, base: symbol, sig: symbol, m: symbol)
 .decl LoadInstanceField(ins: symbol, i: symbol, to: symbol, base: symbol, sig: symbol, m: symbol)
-.decl VirtualMethodInvocation(ins: symbol, i: symbol, sig: symbol,  base: symbol, m: symbol)
-.decl ThrowNull(ins: symbol, i: symbol, m: symbol)
-.decl LoadStaticField(ins: symbol, i: symbol, to: symbol, sig: symbol, m: symbol)
-.decl StoreStaticField(ins: symbol, i: symbol, from: symbol, sig: symbol, m: symbol)
-.decl AssignCastNull(ins: symbol, i: symbol, to: symbol, t: symbol, m: symbol)
-.decl AssignUnop(ins: symbol, i: symbol, to: symbol, m: symbol)
-.decl AssignBinop(ins: symbol, i: symbol, to: symbol, m: symbol)
-.decl AssignOperFrom(ins: symbol, from: symbol)
-.decl Var_Type(var: symbol, type: symbol)
-.decl EnterMonitor(ins: symbol, i: symbol, to: symbol, m: symbol)
-.decl ExitMonitor(ins: symbol, i: symbol, to: symbol, m: symbol)
-
 
 .decl VarPointsToNull(v: symbol)
-
 .decl NullAt(m: symbol, i: symbol, type: symbol)
-
 .decl ReachableNullAt(m: symbol, i: symbol, type: symbol)
-
 .decl ReachableNullAtLine(m: symbol, i: symbol, f: symbol, l: symbol, type:
 symbol)
 
+.decl GuardCheck(insn: symbol, op: symbol, var: symbol, const: symbol)
+.decl If_Var(insn: symbol, pos: symbol, var: symbol)
+.decl If_Constant(insn: symbol, pos: symbol, cons: symbol)
+.decl _OperatorAt(insn: symbol, op:symbol)
 .output ReachableNullAtLine
+.output GuardCheck
 
-VarPointsToNull(var) :- VarPointsTo(_, alloc, _, var),
-						alloc = "<<null pseudo heap>>".
+GuardCheck(insn, op, var, const) :- _OperatorAt(insn, op), If_Var(insn, _, var), If_Constant(insn, _, const).
 
-VarPointsToNull(var) :- AssignCastNull(_,_,var,_,_).
-
-
-
-NullAt(meth, index, "Throw NullPointerException") :-
-CallGraphEdge(_, a, _, b),
-contains("java.lang.NullPointerException", a),
-SpecialMethodInvocation(a, index, b, _, meth).
-
+VarPointsToNull(var) :- VarPointsTo(_, "<<null pseudo heap>>", _, var).
 
 NullAt(meth, index, "Load Array Index") :-
 VarPointsToNull(var),
 LoadArrayIndex(_, index, _, var, meth).
-
-NullAt(meth, index, "Load Array Index") :-
-!VarPointsTo(_,_,_,var),
-LoadArrayIndex(_, index, _, var, meth).
-
-
-NullAt(meth, index, "Store Array Index") :-
-VarPointsToNull(var),
-StoreArrayIndex(_, index, _, var, meth).
-
-NullAt(meth, index, "Store Array Index") :-
-!VarPointsTo(_,_,_,var),
-StoreArrayIndex(_, index, _, var, meth).
-
-
-NullAt(meth, index, "Store Instance Field") :-
-VarPointsToNull(var),
-StoreInstanceField(_, index, _, var, _, meth),
-!StoreArrayIndex(_, _, _, var, meth).
-
-NullAt(meth, index, "Store Instance Field") :-
-!VarPointsTo(_,_,_,var),
-StoreInstanceField(_, index, _, var, _, meth),
-!StoreArrayIndex(_, _, _, var, meth).
-
-
-NullAt(meth, index, "Load Instance Field") :-
-VarPointsToNull(var),
-LoadInstanceField(_, index, _, var, _, meth),
-!LoadArrayIndex(_, _, _, var, meth).
-
-NullAt(meth, index, "Load Instance Field") :-
-!VarPointsTo(_,_,_,var),
-LoadInstanceField(_, index, _, var, _, meth),
-!LoadArrayIndex(_, _, _, var, meth).
-
-NullAt(meth, index, "Virtual Method Invocation") :-
-VarPointsToNull(var),
-VirtualMethodInvocation(_, index, _, var, meth).
-
-NullAt(meth, index, "Virtual Method Invocation") :-
-!VarPointsTo(_,_,_,var),
-VirtualMethodInvocation(_, index, _, var, meth).
-
-NullAt(meth, index, "Special Method Invocation") :-
-VarPointsToNull(var),
-SpecialMethodInvocation(_, index, _, var, meth).
-
-NullAt(meth, index, "Special Method Invocation") :-
-!VarPointsTo(_,_,_,var),
-SpecialMethodInvocation(_, index, _, var, meth).
-
-
-NullAt(meth, index, "Unary Operator") :-
-VarPointsToNull(var),
-AssignUnop(ins, index, _, meth),
-AssignOperFrom(ins, var).
-
-NullAt(meth, index, "Unary Operator") :-
-!VarPointsTo(_,_,_,var),
-AssignUnop(ins, index, _, meth),
-AssignOperFrom(ins, var),
-Var_Type(var, type),
-!Primitive(type).
-
-NullAt(meth, index, "Binary Operator") :-
-VarPointsToNull(var),
-AssignBinop(ins, index, _, meth),
-AssignOperFrom(ins, var).
-
-NullAt(meth, index, "Binary Operator") :-
-!VarPointsTo(_,_,_,var),
-AssignBinop(ins, index, _, meth),
-AssignOperFrom(ins, var),
-Var_Type(var, type),
-!Primitive(type).
-
-NullAt(meth, index, "Throw Null") :-
-ThrowNull(_, index, meth).
-
-NullAt(meth, index, "Enter Monitor (Synchronized)") :-
-VarPointsToNull(var),
-EnterMonitor(_, index, var, meth).
-
-NullAt(meth, index, "Enter Monitor (Synchronized)") :-
-!VarPointsTo(_,_,_,var),
-Var_Type(var, type),
-!Primitive(type),
-EnterMonitor(_, index, var, meth).
 
 ReachableNullAt(meth, index, type) :- NullAt(meth, index, type), Reachable(meth).
 
@@ -872,6 +760,10 @@ InstructionLine(meth, index, line, file).
             args = [String(x) for x in row]
             fact_rules.append(Rule(Literal(name, args, True), []))
 
+    with open('tests/original.dl', 'w') as f:
+        program.rules.extend(fact_rules)
+        f.write(pprint(program))
+
     sym_cnt = 0
     def add_sym_fact(name, sym_cnt):
         arity = len(program.declarations[name])
@@ -882,9 +774,15 @@ InstructionLine(meth, index, line, file).
     
     # sym_cnt = add_sym_fact('VarPointsTo', sym_cnt)
     # sym_cnt = add_sym_fact('LoadArrayIndex', sym_cnt)
-    sym_cnt = add_sym_fact('Reachable', sym_cnt)
+    # sym_cnt = add_sym_fact('Reachable', sym_cnt)
+
+    sym_cnt = add_sym_fact('_OperatorAt', sym_cnt)
+    sym_cnt = add_sym_fact('If_Var', sym_cnt)
+    sym_cnt = add_sym_fact('If_Constant', sym_cnt)
 
     program.rules.extend(fact_rules)
+
+    print(pprint(program))
 
     transformed = transform_into_meta_program(program)
     declarations = transform_declarations(program)
