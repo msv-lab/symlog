@@ -1,0 +1,3 @@
+public	<ArrayNullLoad: void <init>()>
+public	<ArrayNullLoad: void main(java.lang.String[])>
+static	<ArrayNullLoad: void main(java.lang.String[])>

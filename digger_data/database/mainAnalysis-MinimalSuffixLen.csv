@@ -1,0 +1,15 @@
+java.lang.String	6
+java.lang.invoke.MethodHandle	12
+boolean	7
+byte	4
+char	4
+short	5
+int	3
+long	4
+float	5
+double	6
+void	4
+null_type	9
+java.lang.Object	6
+java.lang.String[]	8
+ArrayNullLoad	13

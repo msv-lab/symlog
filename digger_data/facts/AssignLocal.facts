@@ -1,0 +1,2 @@
+<ArrayNullLoad: void <init>()>/definition/instruction1	1	<ArrayNullLoad: void <init>()>/@this	<ArrayNullLoad: void <init>()>/this#_0	<ArrayNullLoad: void <init>()>
+<ArrayNullLoad: void main(java.lang.String[])>/definition/instruction1	1	<ArrayNullLoad: void main(java.lang.String[])>/@parameter0	<ArrayNullLoad: void main(java.lang.String[])>/args#_0	<ArrayNullLoad: void main(java.lang.String[])>

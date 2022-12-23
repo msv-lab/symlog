@@ -1,0 +1,6 @@
+<ArrayNullLoad: void <init>()>/@this	<ArrayNullLoad: void <init>()>
+<ArrayNullLoad: void <init>()>/this#_0	<ArrayNullLoad: void <init>()>
+<ArrayNullLoad: void main(java.lang.String[])>/@parameter0	<ArrayNullLoad: void main(java.lang.String[])>
+<ArrayNullLoad: void main(java.lang.String[])>/args#_0	<ArrayNullLoad: void main(java.lang.String[])>
+<ArrayNullLoad: void main(java.lang.String[])>/array#_3	<ArrayNullLoad: void main(java.lang.String[])>
+<ArrayNullLoad: void main(java.lang.String[])>/i#_4	<ArrayNullLoad: void main(java.lang.String[])>

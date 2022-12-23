@@ -656,58 +656,6 @@ def test_symconst_unifiable_consts_mapping(program_text):
 
 if __name__ == '__main__':
 
-    program_text = """
-.decl reach_no_call(from:number, to:number, v:symbol)
-.decl call(f:symbol, node:number, v:symbol)
-.decl final(n:number)
-.decl flow(x:number, y:number)
-.decl correct_usage(n:number)
-.decl incorrect_usage(n:number)
-.decl label(l:number)
-.decl variable(v:symbol)
-.input final
-.input call    
-.input flow
-.input label     
-.input variable
-.output correct_usage
-correct_usage(L) :-
-   call("open", L, _),
-   ! incorrect_usage(L),
-   label(L).
-incorrect_usage(L) :-
-  call("open", L, V),
-  flow(L, L1),
-  final(F),
-  reach_no_call(L1, F, V).
-  
-reach_no_call(X, X, V) :-
-  label(X),
-  ! call("close", X, V),
-  variable(V).
-reach_no_call(X, Y, V) :-
-  ! call("close", X, V),
-  flow(X, Z),
-  reach_no_call(Z, Y, V).
-call("open", 1, "x").
-call("close", 4, "x").
-call("symlog_symbolic_open", "symlog_symbolic_2", "symlog_symbolic_x").
-final(5).
-final("symlog_symbolic_1").
-flow(1, 2).
-flow(2, 3).
-flow(3, 4).
-flow(4, 5).
-label(1).
-label(2).
-label(3).
-label(4).
-label(5).
-variable("x").
-    """
-
-    # test_symconst_unifiable_consts_mapping(program_text)
-
     program_text2 = """
 .decl InstructionLine(m: symbol, i: symbol, l: symbol, f: symbol)
 .decl VarPointsTo(hctx: symbol, a: symbol, ctx: symbol, v: symbol)
@@ -759,37 +707,33 @@ InstructionLine(meth, index, line, file).
         for row in relations:
             args = [String(x) for x in row]
             fact_rules.append(Rule(Literal(name, args, True), []))
+    program.rules.extend(fact_rules)
 
     with open('tests/original.dl', 'w') as f:
-        program.rules.extend(fact_rules)
         f.write(pprint(program))
 
     sym_cnt = 0
+
     def add_sym_fact(name, sym_cnt):
         arity = len(program.declarations[name])
         args = [String(f"{common.SYMBOLIC_CONSTANT_PREFIX}{sym_cnt + idx}") for idx in range(arity)]
         fact_rules.append(Rule(Literal(name, args, True), []))
         sym_cnt += arity
         return sym_cnt
-    
+
     sym_cnt = add_sym_fact('VarPointsTo', sym_cnt)
     sym_cnt = add_sym_fact('LoadArrayIndex', sym_cnt)
     sym_cnt = add_sym_fact('Reachable', sym_cnt)
 
-    # sym_cnt = add_sym_fact('_OperatorAt', sym_cnt)
-    # sym_cnt = add_sym_fact('If_Var', sym_cnt)
-    # sym_cnt = add_sym_fact('If_Constant', sym_cnt)
-
     program.rules.extend(fact_rules)
-
-    print(pprint(program))
-
     transformed = transform_into_meta_program(program)
     declarations = transform_declarations(program)
+
     facts = create_naive_domain_facts(program)
     abstract_facts = create_abstract_domain_facts(program)
 
     transformed.rules.extend(facts + abstract_facts)
     transformed.declarations.update(declarations)
+    
     with open('tests/transformed.dl', 'w') as f:
         f.write(pprint(transformed))

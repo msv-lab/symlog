@@ -1,0 +1,3 @@
+<<unique-hcontext>>	<<main method array>>	4	<ArrayNullLoad: void main(java.lang.String[])>/@parameter0
+<<unique-hcontext>>	<<main method array>>	4	<ArrayNullLoad: void main(java.lang.String[])>/args#_0
+<<unique-hcontext>>	<<null pseudo heap>>	4	<ArrayNullLoad: void main(java.lang.String[])>/array#_3

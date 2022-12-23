@@ -1,0 +1,15 @@
+java.lang.String	String
+java.lang.invoke.MethodHandle	MethodHandle
+boolean	boolean
+byte	byte
+char	char
+short	short
+int	int
+long	long
+float	float
+double	double
+void	void
+null_type	null_type
+java.lang.Object	Object
+java.lang.String[]	String[]
+ArrayNullLoad	ArrayNullLoad

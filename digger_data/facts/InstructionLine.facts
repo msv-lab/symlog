@@ -1,0 +1,8 @@
+<ArrayNullLoad: void <init>()>	1	-1	ArrayNullLoad.java
+<ArrayNullLoad: void <init>()>	2	1	ArrayNullLoad.java
+<ArrayNullLoad: void <init>()>	3	1	ArrayNullLoad.java
+<ArrayNullLoad: void main(java.lang.String[])>	1	-1	ArrayNullLoad.java
+<ArrayNullLoad: void main(java.lang.String[])>	2	3	ArrayNullLoad.java
+<ArrayNullLoad: void main(java.lang.String[])>	3	4	ArrayNullLoad.java
+<ArrayNullLoad: void main(java.lang.String[])>	4	4	ArrayNullLoad.java
+<ArrayNullLoad: void main(java.lang.String[])>	5	5	ArrayNullLoad.java
