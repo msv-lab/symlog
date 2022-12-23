@@ -326,51 +326,51 @@ def create_abstract_domain_facts(p: Program) -> List[Rule]:
 
         return unifiable_facts
 
-    sym_cstr_facts = create_symcstr_facts()
+    # sym_cstr_facts = create_symcstr_facts()
     unifiable_symconst_facts = create_unifiable_facts()
 
     # abstract_domain_facts = sym_cstr_facts + unifiable_symconst_facts
     # FIXME: uncomment above line and remove the following line
     abstract_domain_facts = unifiable_symconst_facts
 
-    if DEBUG:
-        print(
-            "\nsym_cstr_facts in program: \n",
-            "\n".join([str(fact) for fact in sym_cstr_facts]),
-        )
+    # if DEBUG:
+    #     print(
+    #         "\nsym_cstr_facts in program: \n",
+    #         "\n".join([str(fact) for fact in sym_cstr_facts]),
+    #     )
 
-        print("\nsym_cstr_facts in human readable format: ")
-        for fact in sym_cstr_facts:
-            sym_const = fact.head.name.split(common.DOMAIN_PREDICATE_PREFIX)[1]
-            str_cstr = fact.head.args[0].value
+    #     print("\nsym_cstr_facts in human readable format: ")
+    #     for fact in sym_cstr_facts:
+    #         sym_const = fact.head.name.split(common.DOMAIN_PREDICATE_PREFIX)[1]
+    #         str_cstr = fact.head.args[0].value
 
-            str_eq_cstr, str_neq_cstr = str_cstr.split(common.EQ_NONEQ)
+    #         str_eq_cstr, str_neq_cstr = str_cstr.split(common.EQ_NONEQ)
 
-            str_eq_cstr = str_eq_cstr[
-                str_eq_cstr.find(common.LEFT_SQUARE_BRACKET)
-                + 1 : str_eq_cstr.find(common.RIGHT_SQUARE_BRACKET)
-            ].strip()
+    #         str_eq_cstr = str_eq_cstr[
+    #             str_eq_cstr.find(common.LEFT_SQUARE_BRACKET)
+    #             + 1 : str_eq_cstr.find(common.RIGHT_SQUARE_BRACKET)
+    #         ].strip()
 
-            str_neq_cstr = str_neq_cstr[
-                str_neq_cstr.find(common.LEFT_SQUARE_BRACKET)
-                + 1 : str_neq_cstr.find(common.RIGHT_SQUARE_BRACKET)
-            ].strip()
+    #         str_neq_cstr = str_neq_cstr[
+    #             str_neq_cstr.find(common.LEFT_SQUARE_BRACKET)
+    #             + 1 : str_neq_cstr.find(common.RIGHT_SQUARE_BRACKET)
+    #         ].strip()
 
-            human_readable_eqcstr = [
-                sym_const + common.EQUAL + cstr
-                for cstr in str_eq_cstr.split(common.DELIMITER)
-                if cstr != sym_const and cstr != ""
-            ]
+    #         human_readable_eqcstr = [
+    #             sym_const + common.EQUAL + cstr
+    #             for cstr in str_eq_cstr.split(common.DELIMITER)
+    #             if cstr != sym_const and cstr != ""
+    #         ]
 
-            human_readable_neqcstr = [
-                sym_const + common.NOT_EQUAL + cstr
-                for cstr in str_neq_cstr.split(common.DELIMITER)
-                if cstr != sym_const and cstr != ""
-            ]
+    #         human_readable_neqcstr = [
+    #             sym_const + common.NOT_EQUAL + cstr
+    #             for cstr in str_neq_cstr.split(common.DELIMITER)
+    #             if cstr != sym_const and cstr != ""
+    #         ]
 
-            print(
-                f"{fact.head.name}({sym_const}, {common.DELIMITER.join(human_readable_eqcstr + human_readable_neqcstr)})"
-            )
+    #         print(
+    #             f"{fact.head.name}({sym_const}, {common.DELIMITER.join(human_readable_eqcstr + human_readable_neqcstr)})"
+    #         )
 
     return abstract_domain_facts
 
@@ -772,13 +772,13 @@ InstructionLine(meth, index, line, file).
         sym_cnt += arity
         return sym_cnt
     
-    # sym_cnt = add_sym_fact('VarPointsTo', sym_cnt)
-    # sym_cnt = add_sym_fact('LoadArrayIndex', sym_cnt)
-    # sym_cnt = add_sym_fact('Reachable', sym_cnt)
+    sym_cnt = add_sym_fact('VarPointsTo', sym_cnt)
+    sym_cnt = add_sym_fact('LoadArrayIndex', sym_cnt)
+    sym_cnt = add_sym_fact('Reachable', sym_cnt)
 
-    sym_cnt = add_sym_fact('_OperatorAt', sym_cnt)
-    sym_cnt = add_sym_fact('If_Var', sym_cnt)
-    sym_cnt = add_sym_fact('If_Constant', sym_cnt)
+    # sym_cnt = add_sym_fact('_OperatorAt', sym_cnt)
+    # sym_cnt = add_sym_fact('If_Var', sym_cnt)
+    # sym_cnt = add_sym_fact('If_Constant', sym_cnt)
 
     program.rules.extend(fact_rules)
 
