@@ -7,6 +7,7 @@ import itertools
 from collections import defaultdict
 from sympy.utilities.iterables import multiset_partitions
 import pytest
+import os
 
 DEBUG = False
 
@@ -163,20 +164,20 @@ def analyse_symbolic_constants(p: Program) -> Dict[Tuple[Set[Union[String, Numbe
         # sym const -> set of consts that sym const attempt to unify with
         unifiable_consts_map = dict()
 
-        for loc, symvalues in eloc_symvalues_map.items():
-            unifiable_consts_map[tuple(symvalues)] = set( # set of in principle to-be-joined constants
-                itertools.chain(
-                    *[loc_values_map[sloc] for sloc in symloc_unifiable_locs_map[loc]]
-                )
-            ) | loc_values_map[loc]
-
-        # FIXME: uncomment above and remove below
         # for loc, symvalues in eloc_symvalues_map.items():
-        #     unifiable_consts_map[tuple(symvalues)] = set(
+        #     unifiable_consts_map[tuple(symvalues)] = set( # set of in principle to-be-joined constants
         #         itertools.chain(
         #             *[loc_values_map[sloc] for sloc in symloc_unifiable_locs_map[loc]]
         #         )
-        #     ) # set of in principle to-be-joined constants
+        #     ) | loc_values_map[loc]
+
+        # FIXME: uncomment above and remove below
+        for loc, symvalues in eloc_symvalues_map.items():
+            unifiable_consts_map[tuple(symvalues)] = set(
+                itertools.chain(
+                    *[loc_values_map[sloc] for sloc in symloc_unifiable_locs_map[loc]]
+                )
+            ) # set of in principle to-be-joined constants
 
 
         return unifiable_consts_map
@@ -326,51 +327,51 @@ def create_abstract_domain_facts(p: Program) -> List[Rule]:
 
         return unifiable_facts
 
-    # sym_cstr_facts = create_symcstr_facts()
+    sym_cstr_facts = create_symcstr_facts()
     unifiable_symconst_facts = create_unifiable_facts()
 
-    # abstract_domain_facts = sym_cstr_facts + unifiable_symconst_facts
+    abstract_domain_facts = sym_cstr_facts + unifiable_symconst_facts
     # FIXME: uncomment above line and remove the following line
-    abstract_domain_facts = unifiable_symconst_facts
+    # abstract_domain_facts = unifiable_symconst_facts
 
-    # if DEBUG:
-    #     print(
-    #         "\nsym_cstr_facts in program: \n",
-    #         "\n".join([str(fact) for fact in sym_cstr_facts]),
-    #     )
+    if DEBUG:
+        print(
+            "\nsym_cstr_facts in program: \n",
+            "\n".join([str(fact) for fact in sym_cstr_facts]),
+        )
 
-    #     print("\nsym_cstr_facts in human readable format: ")
-    #     for fact in sym_cstr_facts:
-    #         sym_const = fact.head.name.split(common.DOMAIN_PREDICATE_PREFIX)[1]
-    #         str_cstr = fact.head.args[0].value
+        print("\nsym_cstr_facts in human readable format: ")
+        for fact in sym_cstr_facts:
+            sym_const = fact.head.name.split(common.DOMAIN_PREDICATE_PREFIX)[1]
+            str_cstr = fact.head.args[0].value
 
-    #         str_eq_cstr, str_neq_cstr = str_cstr.split(common.EQ_NONEQ)
+            str_eq_cstr, str_neq_cstr = str_cstr.split(common.EQ_NONEQ)
 
-    #         str_eq_cstr = str_eq_cstr[
-    #             str_eq_cstr.find(common.LEFT_SQUARE_BRACKET)
-    #             + 1 : str_eq_cstr.find(common.RIGHT_SQUARE_BRACKET)
-    #         ].strip()
+            str_eq_cstr = str_eq_cstr[
+                str_eq_cstr.find(common.LEFT_SQUARE_BRACKET)
+                + 1 : str_eq_cstr.find(common.RIGHT_SQUARE_BRACKET)
+            ].strip()
 
-    #         str_neq_cstr = str_neq_cstr[
-    #             str_neq_cstr.find(common.LEFT_SQUARE_BRACKET)
-    #             + 1 : str_neq_cstr.find(common.RIGHT_SQUARE_BRACKET)
-    #         ].strip()
+            str_neq_cstr = str_neq_cstr[
+                str_neq_cstr.find(common.LEFT_SQUARE_BRACKET)
+                + 1 : str_neq_cstr.find(common.RIGHT_SQUARE_BRACKET)
+            ].strip()
 
-    #         human_readable_eqcstr = [
-    #             sym_const + common.EQUAL + cstr
-    #             for cstr in str_eq_cstr.split(common.DELIMITER)
-    #             if cstr != sym_const and cstr != ""
-    #         ]
+            human_readable_eqcstr = [
+                sym_const + common.EQUAL + cstr
+                for cstr in str_eq_cstr.split(common.DELIMITER)
+                if cstr != sym_const and cstr != ""
+            ]
 
-    #         human_readable_neqcstr = [
-    #             sym_const + common.NOT_EQUAL + cstr
-    #             for cstr in str_neq_cstr.split(common.DELIMITER)
-    #             if cstr != sym_const and cstr != ""
-    #         ]
+            human_readable_neqcstr = [
+                sym_const + common.NOT_EQUAL + cstr
+                for cstr in str_neq_cstr.split(common.DELIMITER)
+                if cstr != sym_const and cstr != ""
+            ]
 
-    #         print(
-    #             f"{fact.head.name}({sym_const}, {common.DELIMITER.join(human_readable_eqcstr + human_readable_neqcstr)})"
-    #         )
+            print(
+                f"{fact.head.name}({sym_const}, {common.DELIMITER.join(human_readable_eqcstr + human_readable_neqcstr)})"
+            )
 
     return abstract_domain_facts
 
@@ -633,11 +634,6 @@ symlog_domain_symlog_symbolic_1(5).
     assert pprint(transformed).strip() == answer.strip()
 
 
-def convert_dict_values_to_sets(my_dict):
-    # Convert each value in the dictionary to a set and join the keys with a comma
-    return {','.join([i.value for i in k]): set([i.value for i in v]) for k, v in my_dict.items()}
-
-
 def test_symconst_unifiable_consts_mapping(program_text):
     program = parse(program_text)
     symconst_unifiable_consts_map = analyse_symbolic_constants(program)
@@ -654,9 +650,50 @@ def test_symconst_unifiable_consts_mapping(program_text):
     assert new_dict == answer
 
 
-if __name__ == '__main__':
+def convert_dict_values_to_sets(my_dict):
+    # Convert each value in the dictionary to a set and join the keys with a comma
+    return {','.join([i.value for i in k]): set([i.value for i in v]) for k, v in my_dict.items()}
 
-    program_text2 = """
+
+def transform_input_facts(input_facts, declarations):
+    # transform input_fact into a list of fact rules
+    fact_rules = []
+    for name, relations in input_facts.items():
+        if name not in declarations:
+            continue
+        for row in relations:
+            args = [String(x) for x in row]
+            fact_rules.append(Rule(Literal(name, args, True), []))
+    return fact_rules
+
+
+def transform_and_store_program(program, input_facts, output_file):
+
+    fact_rules = transform_input_facts(input_facts, program.declarations)
+    program.rules.extend(fact_rules)
+
+    transformed = transform_into_meta_program(program)
+    declarations = transform_declarations(program)
+    transformed.declarations.update(declarations)
+
+    facts = create_naive_domain_facts(program)
+    abstract_facts = create_abstract_domain_facts(program)
+    transformed.rules.extend(facts + abstract_facts)
+    
+    dir_name = os.path.dirname(output_file)
+    if not os.path.exists(dir_name):
+        os.makedirs(dir_name)
+
+    with open(output_file, 'w') as f:
+        f.write(pprint(transformed))
+
+    print('Program written to {}'.format(output_file))
+
+
+if __name__ == '__main__':
+    import copy
+
+    program_text = """
 .decl InstructionLine(m: symbol, i: symbol, l: symbol, f: symbol)
 .decl VarPointsTo(hctx: symbol, a: symbol, ctx: symbol, v: symbol)
 .decl Reachable(m: symbol)
@@ -675,7 +712,6 @@ symbol)
 .decl If_Constant(insn: symbol, pos: symbol, cons: symbol)
 .decl _OperatorAt(insn: symbol, op:symbol)
 .output ReachableNullAtLine
-.output GuardCheck
 
 GuardCheck(insn, op, var, const) :- _OperatorAt(insn, op), If_Var(insn, _, var), If_Constant(insn, _, const).
 
@@ -692,48 +728,35 @@ ReachableNullAt(meth, index, type),
 InstructionLine(meth, index, line, file).
 """
 
-    program = parse(program_text2)
+    DIGGER_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'digger_data')
+    TEST_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'tests')
 
-    facts = load_relations('/home/liuyu/info3600-bugchecker-benchmarks/digger/logic/doop_logic/facts')
-    database = load_relations('/home/liuyu/info3600-bugchecker-benchmarks/digger/logic/doop_logic/database')
-    # merge two dictionaries
-    input_facts = {**facts, **database}
+    program = parse(program_text)
+    input_facts = {**load_relations(os.path.join(DIGGER_DATA_DIR, 'facts')), **load_relations(os.path.join(DIGGER_DATA_DIR, 'database'))} # merge two dictionaries
 
-    # transform input_fact into a list of fact rules
-    fact_rules = []
-    for name, relations in input_facts.items():
-        if name not in program.declarations:
-            continue
-        for row in relations:
-            args = [String(x) for x in row]
-            fact_rules.append(Rule(Literal(name, args, True), []))
-    program.rules.extend(fact_rules)
+    def create_sym_facts(idb_list, declarations):
+        sym_cnt = 0
+        sym_facts = defaultdict(list)
 
-    with open('tests/original.dl', 'w') as f:
-        f.write(pprint(program))
+        def add_sym_fact(sym_cnt, name):
+            arity = len(declarations[name])
+            args = [f"{common.SYMBOLIC_CONSTANT_PREFIX}{sym_cnt + idx}" for idx in range(arity)]
+            sym_facts[name].append(args)
+            return sym_cnt + arity
 
-    sym_cnt = 0
+        for idb in idb_list:
+            sym_cnt = add_sym_fact(sym_cnt, idb)
 
-    def add_sym_fact(name, sym_cnt):
-        arity = len(program.declarations[name])
-        args = [String(f"{common.SYMBOLIC_CONSTANT_PREFIX}{sym_cnt + idx}") for idx in range(arity)]
-        fact_rules.append(Rule(Literal(name, args, True), []))
-        sym_cnt += arity
-        return sym_cnt
+        return sym_facts
 
-    sym_cnt = add_sym_fact('VarPointsTo', sym_cnt)
-    sym_cnt = add_sym_fact('LoadArrayIndex', sym_cnt)
-    sym_cnt = add_sym_fact('Reachable', sym_cnt)
 
-    program.rules.extend(fact_rules)
-    transformed = transform_into_meta_program(program)
-    declarations = transform_declarations(program)
+    transformations = [    
+        # ('original', []),
+        ('small_transformed', ['VarPointsTo']),
+        # ('large_transformed', ['VarPointsTo', 'LoadArrayIndex'])
+    ]
 
-    facts = create_naive_domain_facts(program)
-    abstract_facts = create_abstract_domain_facts(program)
-
-    transformed.rules.extend(facts + abstract_facts)
-    transformed.declarations.update(declarations)
-    
-    with open('tests/transformed.dl', 'w') as f:
-        f.write(pprint(transformed))
+    for transformation in transformations:
+        name, idb_list = transformation
+        program_file = os.path.join(TEST_DIR, f'{name}_program.dl')
+        transform_and_store_program(copy.deepcopy(program), {**input_facts, **create_sym_facts(idb_list, program.declarations)}, program_file)
