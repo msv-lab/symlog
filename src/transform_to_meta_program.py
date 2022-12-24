@@ -679,7 +679,7 @@ def transform_and_store_program(program, input_facts, output_file):
     facts = create_naive_domain_facts(program)
     abstract_facts = create_abstract_domain_facts(program)
     transformed.rules.extend(facts + abstract_facts)
-    
+
     dir_name = os.path.dirname(output_file)
     if not os.path.exists(dir_name):
         os.makedirs(dir_name)
@@ -707,13 +707,7 @@ if __name__ == '__main__':
 .decl ReachableNullAtLine(m: symbol, i: symbol, f: symbol, l: symbol, type:
 symbol)
 
-.decl GuardCheck(insn: symbol, op: symbol, var: symbol, const: symbol)
-.decl If_Var(insn: symbol, pos: symbol, var: symbol)
-.decl If_Constant(insn: symbol, pos: symbol, cons: symbol)
-.decl _OperatorAt(insn: symbol, op:symbol)
 .output ReachableNullAtLine
-
-GuardCheck(insn, op, var, const) :- _OperatorAt(insn, op), If_Var(insn, _, var), If_Constant(insn, _, const).
 
 VarPointsToNull(var) :- VarPointsTo(_, "<<null pseudo heap>>", _, var).
 
@@ -751,12 +745,14 @@ InstructionLine(meth, index, line, file).
 
 
     transformations = [    
-        # ('original', []),
+        ('original', []),
         ('small_transformed', ['VarPointsTo']),
-        # ('large_transformed', ['VarPointsTo', 'LoadArrayIndex'])
+        ('large_transformed', ['VarPointsTo', 'LoadArrayIndex'])
     ]
 
     for transformation in transformations:
         name, idb_list = transformation
         program_file = os.path.join(TEST_DIR, f'{name}_program.dl')
-        transform_and_store_program(copy.deepcopy(program), {**input_facts, **create_sym_facts(idb_list, program.declarations)}, program_file)
+        sym_facts = create_sym_facts(idb_list, program.declarations)
+        facts = {k: v + sym_facts.get(k, []) for k, v in input_facts.items()}
+        transform_and_store_program(copy.deepcopy(program), facts, program_file)
