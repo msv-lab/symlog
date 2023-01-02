@@ -160,3 +160,8 @@ cython_debug/
 .idea/
 
 .vscode/
+
+tests/
+tmp/
+*.png
+*s1.dl

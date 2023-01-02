@@ -1,3 +1,4 @@
 lark
 sympy
 pytest
+networkx

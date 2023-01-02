@@ -1,10 +1,17 @@
-SYMBOLIC_CONSTANT_PREFIX = '_symlog_symbolic_'
-BINDING_VARIABLE_PREFIX = '_symlog_binding_'
-DOMAIN_PREDICATE_PREFIX = '_symlog_domain_'
-RECORD_ARG_PREFIX = '_symlog_record_'
+import sys
 
+SYMBOLIC_CONSTANT_PREFIX = 'symlog_symbolic_'
+BINDING_VARIABLE_PREFIX = 'symlog_binding_'
+DOMAIN_PREDICATE_PREFIX = 'symlog_domain_'
+RECORD_ARG_PREFIX = '_symlog_record_'
 DEFAULT_SOUFFLE_TYPE = 'symbol'
+
+SOUFFLE_SYMBOL = 'symbol'
+SOUFFLE_NUMBER = 'number'
 SOUFFLE_LOGICAL_OR = ' lor '
+SOUFFLE_CONTAINS = 'contains'
+SOUFFLE_SUBSTR = 'substr'
+SOUFFLE_INTRINSIC_PREDS = {SOUFFLE_CONTAINS, SOUFFLE_SUBSTR}
 
 DELIMITER = ', '
 EQUAL = ' = '
@@ -14,4 +21,15 @@ EQ_NONEQ = ' eq/neq '
 LEFT_SQUARE_BRACKET = '['
 RIGHT_SQUARE_BRACKET = ']'
 
-NUM_RECORD_ARGS = 2
+SYMLOG_NUM_POOL_SIZE = 1000
+SYMLOG_NUM_POOL = [-sys.maxsize + i for i in range(SYMLOG_NUM_POOL_SIZE)]
+
+SHIMPLE_TEMP_VAR_PREFIX = '$stack'
+
+DEFAULT_GRAPH_ATTR_NAME = 'label'
+
+POS_LIT_LABEL = '+'
+NEG_LIT_LABEL = '-'
+
+DL_SCHS = 'schs'
+DL_EDBS = 'edbs'
