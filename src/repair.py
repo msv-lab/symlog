@@ -147,6 +147,7 @@ def partition_to_strata(dl_program_path: str) -> List[Dict[str, List[str]]]:
     def store_stratum(idx, stratum):
         program_text = process_stratum(stratum)
         utils.store_file(program_text, os.path.join(os.getcwd(), 'tmp', f'stratum_{idx}.dl'))
+        print(f'Stratum {idx} is stored at {os.path.join(os.getcwd(), "tmp", f"stratum_{idx}.dl")}')
 
     # Create leq graph (<= relations)
     leq_graph = create_leq_graph(precedence_graph)
@@ -156,11 +157,6 @@ def partition_to_strata(dl_program_path: str) -> List[Dict[str, List[str]]]:
     sorted_strata = sorted(strata_list, key=functools.cmp_to_key(compare), reverse=True)
     for idx, stratum in enumerate(sorted_strata):
         store_stratum(len(sorted_strata) - idx, stratum)
-
-    # for idx, stratum in enumerate(sorted_strata):
-    #     print(f'stratum {len (sorted_strata) - idx}:')
-    #     print(stratum[common.DL_SCHS])
-    #     print('\n')
 
     return sorted_strata
 

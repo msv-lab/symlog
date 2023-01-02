@@ -1,4 +1,236 @@
 
+.decl Primitive(type: symbol)
+Primitive("boolean").
+Primitive("short").
+Primitive("int").
+Primitive("long").
+Primitive("float").
+Primitive("double").
+Primitive("char").
+Primitive("byte").
+
+.decl VarPointsTo(hctx: symbol, a: symbol, ctx: symbol, v: symbol)
+.decl CallGraphEdge(ctx: symbol, ins: symbol, hctx: symbol, sig: symbol)
+.decl Reachable(m: symbol)
+.decl If_Var(insn: symbol, pos: symbol, var: symbol)
+.decl If_Constant(insn: symbol, pos: symbol, cons: symbol)
+.decl OperatorAt(insn: symbol, op:symbol)
+
+.decl SpecialMethodInvocation(instruction:symbol, i: number, sig: symbol, base:symbol, m: symbol)
+
+.decl StaticMethodInvocation(instruction:symbol, index:number, signature: symbol, method:symbol)
+
+.decl VirtualMethodInvocation(instruction:symbol, index:number, signature: symbol, base:symbol, method:symbol)
+
+.decl SuperMethodInvocation(instruction:symbol, index:number, signature: symbol, base:symbol, method:symbol)
+
+.decl MethodInvocation_Line(instruction:symbol, line: number)
+
+.decl LoadArrayIndex(ins: symbol, i: number, to: symbol, base: symbol, m: symbol)
+
+.decl StoreArrayIndex(ins: symbol, i: number, from: symbol, base: symbol, m: symbol)
+
+.decl StoreInstanceField(ins: symbol, i: number, from: symbol, base: symbol, sig: symbol, m: symbol)
+
+.decl LoadInstanceField(ins: symbol, i: number, to: symbol, base: symbol, sig: symbol, m: symbol)
+
+.decl ThrowNull(ins: symbol, i: number, m: symbol)
+
+.decl LoadStaticField(ins: symbol, i: number, to: symbol, sig: symbol, m: symbol)
+
+.decl StoreStaticField(ins: symbol, i: number, from: symbol, sig: symbol, m: symbol)
+
+.decl AssignCastNull(ins: symbol, i: number, to: symbol, t: symbol, m: symbol)
+
+.decl AssignUnop(ins: symbol, i: number, to: symbol, m: symbol)
+
+.decl AssignBinop(ins: symbol, i: number, to: symbol, m: symbol)
+
+.decl AssignOperFrom(ins: symbol, from: symbol)
+
+.decl Var_Type(var: symbol, type: symbol)
+
+.decl EnterMonitor(ins: symbol, i: number, to: symbol, m: symbol)
+
+.decl ExitMonitor(ins: symbol, i: number, to: symbol, m: symbol)
+
+.decl ApplicationClass(type: symbol)
+
+
+.decl Method(method: symbol, simplename: symbol, descriptor: symbol, declaringType:  symbol, returnType: symbol, jvmDescriptor: symbol, arity: number)
+
+
+.decl VarPointsToNull(v: symbol, type: symbol)
+
+.decl NullAt(m: symbol, i: number, var: symbol, type: symbol)
+.output NullAt
+
+.decl ReachableNullAt(m: symbol, i: number, var:symbol, type: symbol)
+
+.decl ReachableNullAtLine(m: symbol, i: number, l: number, var:symbol, type: symbol)
+.output ReachableNullAtLine
+
+.decl InstructionLine(m: symbol, i: number, l: number)
+.decl MethodInvocation_Method(invocation:symbol, signature: symbol, index: number)
+.decl GuardCheck(insn: symbol, op: symbol, var: symbol, const: symbol)
+
+.decl ApplicationMethod(method: symbol)
+
+.decl ApplicationMethodNullAt(m: symbol, i: number, type: symbol, line: number)
+
+VarPointsToNull(var, "<<null pseudo heap>>") :- VarPointsTo(_, alloc, _, var),
+						alloc = "<<null pseudo heap>>".
+
+VarPointsToNull(var, "AssignCastNull") :- AssignCastNull(_,_,var,_,_).
+
+
+NullAt(meth, index, base, "Throw NullPointerException") :-
+CallGraphEdge(_, a, _, b),
+contains("java.lang.NullPointerException", a),
+SpecialMethodInvocation(a, index, b, base, meth).
+
+
+NullAt(meth, index, var, "Load Array Index") :-
+VarPointsToNull(var, _),
+!MustNonNullAt(index, ins, var, meth),
+LoadArrayIndex(ins, index, _, var, meth).
+
+
+NullAt(meth, index, var, "Store Array Index") :-
+VarPointsToNull(var, _),
+!MustNonNullAt(index, ins, var, meth),
+StoreArrayIndex(ins, index, _, var, meth).
+
+
+NullAt(meth, index, var, "Store Instance Field") :-
+VarPointsToNull(var, _),
+StoreInstanceField(ins, index, _, var, _, meth),
+!MustNonNullAt(index, ins, var, meth),
+!StoreArrayIndex(_, _, _, var, meth).
+
+
+NullAt(meth, index, var, "Load Instance Field") :-
+VarPointsToNull(var, _),
+LoadInstanceField(ins, index, _, var, _, meth),
+!MustNonNullAt(index, ins, var, meth),
+!LoadArrayIndex(_, _, _, var, meth).
+
+
+NullAt(meth, index, var, "Virtual Method Invocation") :-
+VarPointsToNull(var, _),
+!MustNonNullAt(index, ins, var, meth),
+VirtualMethodInvocation(ins, index, _, var, meth).
+
+
+NullAt(meth, index, var, "Special Method Invocation") :-
+VarPointsToNull(var, _),
+!MustNonNullAt(index, ins, var, meth),
+SpecialMethodInvocation(ins, index, _, var, meth).
+
+
+NullAt(meth, index, var, "Unary Operator") :-
+VarPointsToNull(var, _),
+!MustNonNullAt(index, ins, var, meth),
+AssignUnop(ins, index, _, meth),
+AssignOperFrom(ins, var).
+
+
+NullAt(meth, index, var, "Binary Operator") :-
+VarPointsToNull(var, _),
+!MustNonNullAt(index, ins, var, meth),
+AssignBinop(ins, index, _, meth),
+AssignOperFrom(ins, var).
+
+
+NullAt(meth, index, "throw null", "Throw Null") :-
+ThrowNull(_, index, meth).
+
+NullAt(meth, index, var, "Enter Monitor (Synchronized)") :-
+VarPointsToNull(var, _),
+!MustNonNullAt(index, ins, var, meth),
+EnterMonitor(ins, index, var, meth).
+
+
+MethodInvocation_Method(instruction, method, index) :-
+  StaticMethodInvocation(instruction, index, signature, method).
+
+MethodInvocation_Method(instruction, method, index) :-
+  SpecialMethodInvocation(instruction, index, signature, _, method).
+
+MethodInvocation_Method(instruction, method, index) :-
+  VirtualMethodInvocation(instruction, index, signature, _, method).
+
+MethodInvocation_Method(instruction, method, index) :-
+  SuperMethodInvocation(instruction, index, signature, base, method).
+
+InstructionLine(method, index, line) :- MethodInvocation_Line(instruction, line), MethodInvocation_Method(instruction, method, index).
+
+ApplicationMethod(method) :-
+  Method(method, _, _, class, _, _, _),
+  ApplicationClass(class).
+
+ReachableNullAt(meth, index, var, type) :- NullAt(meth, index, var, type), Reachable(meth), ApplicationMethod(meth).
+
+ReachableNullAtLine(meth, index, line, var, type) :- 
+ReachableNullAt(meth, index, var, type), 
+InstructionLine(meth, index, line).
+
+
+
+.decl JumpTarget(insn: symbol, prev: symbol)
+
+.decl BasicBlockHead(insn: symbol, headInsn: symbol)
+
+.decl Dominates(dominator: symbol, insn: symbol)
+
+.decl Instruction_Next(insn: symbol, next: symbol)
+
+.decl Instruction_Method(insn: symbol, method: symbol)
+
+.decl Instruction_Index(insn: symbol, index:number)
+
+.decl InstructionInPhiNode(insn: symbol, headInsn: symbol)
+
+.decl AssignLocal(instruction: symbol, index: number, from: symbol, to: symbol, inmethod: symbol)
+
+.decl NextInSameBasicBlock(insn: symbol, next: symbol)
+
+.decl MustNonNullBeginAt(index:number, insn: symbol, var: symbol, method: symbol)
+.decl MustNonNullAt(index:number, insn: symbol, var: symbol, method: symbol)
+.decl BasicBlockNonNullBegin(insn: symbol, var: symbol, method: symbol)
+.decl CheckedNonNullAt(insn:symbol, var: symbol, method: symbol)
+.decl PhiAssignToMaybeNull(insn: symbol, var: symbol, method: symbol)
+
+
+BasicBlockNonNullBegin(target_insn, var, method) :-
+   OperatorAt(insn, "!="), 
+   If_Var(insn, _, var), 
+   If_Constant(insn, _, "null"),
+   JumpTarget(target_insn, insn),
+   Instruction_Method(target_insn, method).
+
+BasicBlockNonNullBegin(next_insn, var, method) :-
+   OperatorAt(insn, "=="),
+   If_Var(insn, _, var),
+   If_Constant(insn, _, "null"),
+   Instruction_Next(insn, next_insn),
+   Instruction_Method(next_insn, method). 
+
+MustNonNullBeginAt(index, beginInsn, var, method) :-
+   BasicBlockNonNullBegin(dominator, var, method),
+   Dominates(dominator, beginInsn),
+   Instruction_Index(beginInsn, index).
+
+MustNonNullAt(index, insn, var, method) :-
+   MustNonNullBeginAt(index, beginInsn, var, method),
+   BasicBlockHead(insn, beginInsn).
+
+
+MustNonNullAt(index, next_insn, var, method) :-
+   MustNonNullAt(_, insn, var, method),
+   NextInSameBasicBlock(insn, next_insn),
+   Instruction_Index(next_insn, index).
+
 .decl VarPointsTo(hctx: symbol, a: symbol, ctx: symbol, v: symbol)
 .decl CallGraphEdge(ctx: symbol, ins: symbol, hctx: symbol, sig: symbol)
 .decl Reachable(m: symbol)

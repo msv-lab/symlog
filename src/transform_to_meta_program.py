@@ -90,7 +90,7 @@ def transform_for_recording_facts(
                 ]
 
                 # store record args in columns (instead of rows)
-                # TODO: The program for finding all paths should not contain negative literals. Let's keep this for now.
+                # TODO: The program for finding all paths should not contain negative literals. keep this for now.
                 body_record_argnames_list = [
                     [
                         f"{literal.name}{common.RECORD_ARG_PREFIX}{i}"
@@ -332,7 +332,7 @@ def create_naive_domain_facts(p: Program) -> List[Rule]:
         # iterate over all combinations of symbolic constants and constants
         for sym_consts, consts in itertools.product(sym_consts_list, consts_list):
             # create a list of facts and add it to the naive_facts list 
-            facts = [create_fact(f"{common.DOMAIN_PREDICATE_PREFIX}{symvalue_for_pred(sym_const)}", [const]) for (const, sym_const) in zip(consts, sym_consts)]
+            facts = [create_fact(f"{common.DOMAIN_PREDICATE_PREFIX}{symvalue_for_name(sym_const)}", [const]) for (const, sym_const) in zip(consts, sym_consts)]
             naive_facts.extend(facts)
 
     return naive_facts
@@ -350,15 +350,9 @@ def create_abstract_domain_facts(p: Program) -> List[Rule]:
 
         for symconsts, consts in symconsts_unifiable_consts_map.items():
             for symconst, const in itertools.product(symconsts, consts):
-                #FIXME: temporarily disabled non-symbolic const
-                # unifiable_facts.append(create_fact(
-                #     f"{common.DOMAIN_PREDICATE_PREFIX}{symvalue_for_pred(symconst)}",
-                #     [const]))
-                #TODO: add the non-symbolic const which appears in original rules
-                if utils.is_arg_symbolic(const):
-                    unifiable_facts.append(create_fact(
-                        f"{common.DOMAIN_PREDICATE_PREFIX}{symvalue_for_pred(symconst)}",
-                        [const]))
+                unifiable_facts.append(create_fact(
+                    f"{common.DOMAIN_PREDICATE_PREFIX}{symvalue_for_name(symconst)}",
+                    [const]))
 
         return unifiable_facts
 
@@ -407,9 +401,9 @@ extract_pred_symconstype_pair(x)))
 
             # domain declarations
             for symconst, type in symconstypes_of_pred:
-                if p.declarations.get(f"{common.DOMAIN_PREDICATE_PREFIX}{symvalue_for_pred(symconst)}", None) is None:
+                if p.declarations.get(f"{common.DOMAIN_PREDICATE_PREFIX}{symvalue_for_name(symconst)}", None) is None:
                     res.append(
-                        (f"{common.DOMAIN_PREDICATE_PREFIX}{symvalue_for_pred(symconst)}", [type]))
+                        (f"{common.DOMAIN_PREDICATE_PREFIX}{symvalue_for_name(symconst)}", [type]))
 
             return res
 
@@ -443,7 +437,7 @@ def transform_into_meta_program(p: Program) -> Program:
     special_pred_names = edb_names | common.SOUFFLE_INTRINSIC_PREDS
 
     binding_vars = [
-        Variable(f"{common.BINDING_VARIABLE_PREFIX}{symvalue_for_pred(x)}") for x in symbolic_consts
+        Variable(f"{common.BINDING_VARIABLE_PREFIX}{symvalue_for_name(x)}") for x in symbolic_consts
     ]
 
     def add_binding_vars_to_literal(
@@ -453,25 +447,25 @@ def transform_into_meta_program(p: Program) -> Program:
 
     def binding_vars_of_pred(pred_name: str) -> List[Variable]:
         return [
-            Variable(f"{common.BINDING_VARIABLE_PREFIX}{symvalue_for_pred(x)}")
+            Variable(f"{common.BINDING_VARIABLE_PREFIX}{symvalue_for_name(x)}")
             for x in pred_symconsts_map.get(pred_name, [])
         ]
 
     def add_domain_literal(sym_arg: Union[String, Number]) -> Literal:
         # E.g., domain_alpha(var_alpha)
         return Literal(
-            f"{common.DOMAIN_PREDICATE_PREFIX}{symvalue_for_pred(sym_arg)}",
-            [Variable(f"{common.BINDING_VARIABLE_PREFIX}{symvalue_for_pred(sym_arg)}")],
+            f"{common.DOMAIN_PREDICATE_PREFIX}{symvalue_for_name(sym_arg)}",
+            [Variable(f"{common.BINDING_VARIABLE_PREFIX}{symvalue_for_name(sym_arg)}")],
             True,
         )
 
-    def add_binding_vars(n: Any) -> Any:
+    def add_binding_vars(n):
         if isinstance(n, Rule):
             if not n.body:
                 # fact
                 replaced = transform(
                     n.head,
-                    lambda x: Variable(f"{common.BINDING_VARIABLE_PREFIX}{symvalue_for_pred(x)}")
+                    lambda x: Variable(f"{common.BINDING_VARIABLE_PREFIX}{symvalue_for_name(x)}")
                     if x in symbolic_consts
                     else x,
                 )
@@ -505,7 +499,8 @@ def transform_into_meta_program(p: Program) -> Program:
 
     return transform(p, add_binding_vars)
 
-def symvalue_for_pred(x):
+
+def symvalue_for_name(x):
     if isinstance(x, Number):
         return abs(x.value)
     return x.value
@@ -721,7 +716,7 @@ if __name__ == '__main__':
     transformations = [    
         ('original', []),
         # ('small_transformed', ['OperatorAt', 'If_Var', 'If_Constant', 'Instruction_Next']),
-        ('large_transformed', ['OperatorAt', 'If_Var', 'If_Constant', 'JumpTarget', 'Instruction_Method', 'Dominates', 'Instruction_Index', 'BasicBlockHead'])
+        ('large_transformed', ['OperatorAt', 'If_Var', 'If_Constant', 'JumpTarget', 'Instruction_Method', 'Dominates', 'Instruction_Index', 'BasicBlockHead', 'NextInSameBasicBlock'])
     ]
 
     for transformation in transformations:
