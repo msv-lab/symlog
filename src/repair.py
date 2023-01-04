@@ -2,12 +2,13 @@ import re
 import os
 import shutil
 import networkx as nx
-from typing import List, Callable, Dict
+from typing import List, Callable, Dict, Generator, Set
 import functools
 import itertools
 import common
 import utils
 from souffle import parse, pprint, Literal, Program
+from transform_to_meta_program import transform_for_recording_facts
 
 
 def extract_facts_around_bug(bug_id: str, the_bug_fact: str, data_path: str) -> List[str]:
@@ -109,7 +110,7 @@ def partition_to_strata(dl_program_path: str) -> List[Dict[str, List[str]]]:
 
         leq_graph = nx.Graph(leq_relations)
 
-        def remove_edge_if_exists(graph: nx.Graph, node1: str, node2: str):
+        def remove_edge_if_exists(graph: nx.Graph, node1: str, node2: str) -> None:
             if graph.has_edge(node1, node2):
                 graph.remove_edge(node1, node2)
 
@@ -120,7 +121,7 @@ def partition_to_strata(dl_program_path: str) -> List[Dict[str, List[str]]]:
 
         return leq_graph
 
-    def get_stratum_info(precedence_graph, cc):
+    def get_stratum_info(precedence_graph: nx.DiGraph, cc: Generator[Set, None, None]) -> Dict[str, Set[str]]:
         schs = set(cc)
         schs = schs | set(itertools.chain.from_iterable(precedence_graph.predecessors(node) for node in cc)) - common.SOUFFLE_INTRINSIC_PREDS # filter out intrinsic preds
         edbs = set(n for n in schs if not precedence_graph.in_degree(n) or not (set(precedence_graph.predecessors(n)) & schs - {n})) - common.SOUFFLE_INTRINSIC_PREDS # filter out intrinsic preds
@@ -134,7 +135,7 @@ def partition_to_strata(dl_program_path: str) -> List[Dict[str, List[str]]]:
         else:
             return 0
 
-    def process_stratum(stratum):
+    def process_stratum(stratum: Dict[str, Set[str]]) -> str:
         program = parse(utils.read_file(dl_program_path))
 
         rules = [rule for rule in program.rules if rule.head.name in (stratum[common.DL_SCHS] - stratum[common.DL_EDBS])]
@@ -144,7 +145,7 @@ def partition_to_strata(dl_program_path: str) -> List[Dict[str, List[str]]]:
 
         return pprint(Program(declarations, inputs, outputs, rules))
 
-    def store_stratum(idx, stratum):
+    def store_stratum(idx: int, stratum: Dict[str, Set[str]]) -> None:
         program_text = process_stratum(stratum)
         utils.store_file(program_text, os.path.join(os.getcwd(), 'tmp', f'stratum_{idx}.dl'))
         print(f'Stratum {idx} is stored at {os.path.join(os.getcwd(), "tmp", f"stratum_{idx}.dl")}')
@@ -171,4 +172,16 @@ if __name__ == '__main__':
 
     # extract_facts_around_bug(bug_id, the_bug_fact, data_path)
 
-    partition_to_strata('may-cfg.dl')
+    strata = partition_to_strata('may-cfg.dl')
+    
+    transfromed_p = parse(utils.read_file("tests/small_transformed_program.dl"))
+    
+    fact_names = strata[1][common.DL_EDBS]
+
+    n = 2
+
+    transformed = transform_for_recording_facts(transfromed_p, n, fact_names)
+
+    utils.store_file(pprint(transformed), "tests/transformed_record_program.dl")
+
+    print("transformed program for recording facts is stored in tests/transformed_record_program.dl")
