@@ -37,22 +37,15 @@ def group_pred_consts_list(facts, f):
 
 
 def transform_for_recording_facts(
-    p: Program, num: int, fact_heads: List[Literal]
-) -> Program:
-    """Transforms a program to a program that can record facts.
+    p: Program, num: int, fact_names: List[str]
+) -> Tuple[Program, List[Rule]]:
 
-    This transformation is used to make the given program can record facts in a manner of adding new arguments to the head of each rule. The new arguments are used to record the facts.
+    # fact heads include: original untransformed facts, domain facts, and heads
+    # of transformed facts which keep original concrete constants
+    fact_heads = {fact.head for fact in collect(p, lambda x: isinstance(x, Rule) and not x.body)}
+    fact_heads |= {fact.head for fact in collect(p, lambda x: isinstance(x, Rule) and x.body and x.head.name in fact_names and not utils.is_arg_symbolic(x.head.args[0]))}
 
-    Args:
-        p: The program to transform.
-        num: The number of blocks that facts to be partitioned to.
-        fact_heads: The heads of facts to be partitioned.
-
-    Returns:
-        A program that records facts.
-    """
-
-    fact_head_blocks = utils.split_into_chunks(fact_heads, num)
+    fact_head_blocks = utils.split_into_chunks(list(fact_heads), num)
 
     fact_head_id_map = {
         utils.hash_literal(fact_head): [0 if i != bno else 1 for i in range(num)]
@@ -63,7 +56,7 @@ def transform_for_recording_facts(
     def add_record_args(literal: Literal) -> Literal:
         return Literal(
             literal.name,
-            literal.args
+            list(literal.args)
             + [
                 Variable(f"{literal.name}{common.RECORD_ARG_PREFIX}{i}")
                 for i in range(1, 1 + num)
@@ -74,12 +67,12 @@ def transform_for_recording_facts(
     def add_id_args(literal: Literal, id_args: List[int]) -> Literal:
         return Literal(
             literal.name,
-            literal.args + [Number(id_arg) for id_arg in id_args],
+            list(literal.args) + [Number(id_arg) for id_arg in id_args],
             literal.positive,
         )
 
     def add_record_components(n: Any) -> Any:
-        if isinstance(n, Rule) and n.body:
+        if isinstance(n, Rule):
             rule = n
             head_hash = utils.hash_literal(rule.head)
             if head_hash not in fact_head_id_map:  # not a fact
@@ -95,8 +88,7 @@ def transform_for_recording_facts(
                     [
                         f"{literal.name}{common.RECORD_ARG_PREFIX}{i}"
                         for literal in rule.body
-                        if not literal.name.startswith(common.DOMAIN_PREDICATE_PREFIX)
-                        and literal.positive
+                        if  literal.positive
                     ]
                     for i in range(1, 1 + num)
                 ]
@@ -120,14 +112,60 @@ def transform_for_recording_facts(
 
             else:  # a fact
                 return Rule(
-                    add_id_args(rule.head, fact_head_id_map[head_hash]), rule.body
+                    add_id_args(rule.head, fact_head_id_map[head_hash]), [add_record_args(literal) for literal in rule.body] # if body is empty, add nothing. Otherwise, add record args for fact rules whose heads like `OperatorAt("<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>/if/14", "==", symlog_binding_symlog_symbolic_0, symlog_binding_symlog_symbolic_1, 1, 0)`. The record args are just placeholders.
                 )
 
         return n
 
-    transformed = transform(p, add_record_components)
+    def add_record_comps_for_rule(rule: Rule) -> Rule:
+        head_record_args = [
+            Variable(f"{rule.head.name}{common.RECORD_ARG_PREFIX}{i}")
+            for i in range(1, 1 + num)
+        ]
 
-    return transform(p, add_record_components)
+        # store record args in columns (instead of rows)
+        # TODO: The program for finding all paths should not contain negative literals. keep this for now.
+        body_record_argnames_list = [
+            [
+                f"{literal.name}{common.RECORD_ARG_PREFIX}{i}"
+                for literal in rule.body
+                if  literal.positive
+            ]
+            for i in range(1, 1 + num)
+        ]
+
+        # construct unifications, e.g., t1 = t1'|t1'' ...
+        unifications = [
+            Unification(
+                hrarg,
+                Variable(common.SOUFFLE_LOGICAL_OR.join(brargnames)),
+                True,
+            )
+            for hrarg, brargnames in zip(
+                head_record_args, body_record_argnames_list
+            )
+        ]
+
+        return Rule(
+            add_record_args(rule.head),
+            [add_record_args(literal) for literal in rule.body] + unifications,
+        )
+
+    def add_record_comps_for_fact(rule: Rule) -> Rule:
+        head_hash = utils.hash_literal(rule.head)
+        return Rule(
+            add_id_args(rule.head, fact_head_id_map[head_hash]), [add_record_args(literal) for literal in rule.body] if rule.body else []
+        )# if body is empty, add nothing. Otherwise, add record args for fact rules whose heads like `OperatorAt("<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>/if/14", "==", symlog_binding_symlog_symbolic_0, symlog_binding_symlog_symbolic_1, 1, 0)`. The record args are just placeholders.
+
+
+    # transform facts and rules by adding record components
+    rec_facts = [add_record_comps_for_fact(rule) for rule in p.rules if utils.hash_literal(rule.head) in fact_head_id_map]
+    rec_rules = [add_record_comps_for_rule(rule) for rule in p.rules if utils.hash_literal(rule.head) not in fact_head_id_map]
+
+    # transform declarations. add num number types to each of the declarations
+    declarations = {name: types + num * [common.SOUFFLE_NUMBER] for name, types in p.declarations.items()}
+
+    return Program(declarations, p.inputs, p.outputs, rec_rules), rec_facts
 
 
 def analyse_symbolic_constants(
@@ -715,8 +753,8 @@ if __name__ == '__main__':
 
     transformations = [    
         ('original', []),
-        # ('small_transformed', ['OperatorAt', 'If_Var', 'If_Constant', 'Instruction_Next']),
-        ('large_transformed', ['OperatorAt', 'If_Var', 'If_Constant', 'JumpTarget', 'Instruction_Method', 'Dominates', 'Instruction_Index', 'BasicBlockHead', 'NextInSameBasicBlock'])
+        ('small_transformed', ['OperatorAt', 'If_Var', 'If_Constant']),
+        # ('large_transformed', ['OperatorAt', 'If_Var', 'If_Constant', 'JumpTarget', 'Instruction_Method', 'Dominates', 'Instruction_Index', 'BasicBlockHead', 'NextInSameBasicBlock'])
     ]
 
     for transformation in transformations:

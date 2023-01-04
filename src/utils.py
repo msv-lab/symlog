@@ -2,7 +2,7 @@ import itertools
 import common
 from souffle import Literal
 from typing import List, Dict, Set, Any
-from souffle import String, Number
+from souffle import String, Number, Variable
 import os
 
 
@@ -42,7 +42,15 @@ def read_file(file_path):
 
 
 def is_arg_symbolic(arg: String|Number) -> bool:
-    return (isinstance(arg, String) and arg.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX)) or (isinstance(arg, Number) and arg.value in common.SYMLOG_NUM_POOL)
+    '''Returns True if the argument is a symbolic constant/number/binding variable.'''
+    if isinstance(arg, String):
+        return arg.value.startswith(common.SYMBOLIC_CONSTANT_PREFIX)
+    elif isinstance(arg, Number):
+        return arg.value in common.SYMLOG_NUM_POOL
+    elif isinstance(arg, Variable):
+        return arg.name.startswith(common.BINDING_VARIABLE_PREFIX)
+    else:
+        raise ValueError(f"Unexpected type {type(arg)} for argument {arg}.")
 
 
 def is_number(s):

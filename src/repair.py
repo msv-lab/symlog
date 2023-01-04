@@ -180,7 +180,7 @@ if __name__ == '__main__':
 
     n = 2
 
-    transformed = transform_for_recording_facts(transfromed_p, n, fact_names)
+    transformed, facts = transform_for_recording_facts(transfromed_p, n, fact_names)
 
     utils.store_file(pprint(transformed), "tests/transformed_record_program.dl")
 

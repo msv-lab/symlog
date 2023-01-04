@@ -16,12 +16,16 @@ def search(p: Program, transfromed_p: Program) -> List[Literal]:
     fact_heads = [fact.head for fact in collect(transfromed_p, lambda x: isinstance(
         x, Rule) and x.head.name in fact_names and x.body)]
 
+    print(fact_names)
+
     # delta debugging
     n = 2
-    
-    transformed = transform_for_recording_facts(transfromed_p, n, fact_heads)
+
+    transformed = transform_for_recording_facts(transfromed_p, n, fact_names)
 
     utils.store_file(pprint(transformed), "tests/transformed_record_program.dl")
+
+    print("transformed program for recording facts is stored in tests/transformed_record_program.dl")
 
     # run program
 
@@ -34,7 +38,7 @@ def target_in_outputs(p: Program, input_facts: Dict, target_tuples: Dict) -> int
     # check whether target tuples are derived
     derived = all(item in output_relations.items() for item in target_tuples.items())
 
-    return PASS if derived else FAIL
+    return FAIL if derived else PASS
 
 
 def ddmin(test, inp, *test_args: Any):
@@ -69,7 +73,7 @@ if __name__ == "__main__":
     # load program
     p = parse(utils.read_file("tests/original_program.dl"))
     # load transformed program
-    transfromed_p = parse(utils.read_file("tests/large_transformed_program.dl"))
+    transfromed_p = parse(utils.read_file("tests/small_transformed_program.dl"))
 
     # search for facts that cause some tuples to be derived
     search(p, transfromed_p)
