@@ -754,5 +754,5 @@ InstructionLine(meth, index, line, file).
         name, idb_list = transformation
         program_file = os.path.join(TEST_DIR, f'{name}_program.dl')
         sym_facts = create_sym_facts(idb_list, program.declarations)
-        facts = {k: v + sym_facts.get(k, []) for k, v in input_facts.items()}
+        facts = {k: sym_facts.get(k, []) + input_facts.get(k, []) for k in (input_facts.keys() | sym_facts.keys())}
         transform_and_store_program(copy.deepcopy(program), facts, program_file)
