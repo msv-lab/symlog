@@ -42,27 +42,29 @@ def transform_for_recording_facts(
 
     # fact heads include: original untransformed facts, domain facts, and heads
     # of transformed facts which keep original concrete constants
-    fact_heads = {fact.head for fact in collect(p, lambda x: isinstance(x, Rule) and not x.body)}
-    fact_heads |= {fact.head for fact in collect(p, lambda x: isinstance(x, Rule) and x.body and x.head.name in fact_names and not utils.is_arg_symbolic(x.head.args[0]))}
+    hash_fact_heads = {utils.hash_literal(fact.head) for fact in collect(p, lambda x: isinstance(x, Rule) and not x.body)}
+    hash_fact_heads |= {utils.hash_literal(fact.head) for fact in collect(p, lambda x: isinstance(x, Rule) and x.body and x.head.name in fact_names and not utils.is_arg_symbolic(x.head.args[0]))}
 
-    fact_head_blocks = utils.split_into_chunks(list(fact_heads), num)
+    hash_fact_head_blocks = utils.split_into_chunks(list(hash_fact_heads), num)
 
     fact_head_id_map = {
-        utils.hash_literal(fact_head): [0 if i != bno else 1 for i in range(num)]
-        for bno, fact_block in enumerate(fact_head_blocks)
-        for fact_head in fact_block
+        hash_fact_head: [common.UNMARKED if i != bno else common.MARKED for i in range(num)]
+        for bno, hash_fact_block in enumerate(hash_fact_head_blocks)
+        for hash_fact_head in hash_fact_block
     }
 
-    def add_record_args(literal: Literal) -> Literal:
-        return Literal(
-            literal.name,
-            list(literal.args)
-            + [
-                Variable(f"{literal.name}{common.RECORD_ARG_PREFIX}{i}")
-                for i in range(1, 1 + num)
-            ],
-            literal.positive,
-        )
+    def add_record_args(literal: Literal, is_head=True) -> Literal:
+        if isinstance(literal, Literal) and literal.name not in common.SOUFFLE_INTRINSIC_PREDS: # only add record args to literals
+            return Literal(
+                literal.name,
+                list(literal.args)
+                + [
+                    Variable(f"{literal.name}{common.HEAD_RECORD_ARG_PREFIX}{i}" if is_head else f"{literal.name}{common.BODY_RECORD_ARG_PREFIX}{i}")
+                    for i in range(1, 1 + num)
+                ],
+                literal.positive,
+            )
+        return literal
 
     def add_id_args(literal: Literal, id_args: List[int]) -> Literal:
         return Literal(
@@ -71,65 +73,18 @@ def transform_for_recording_facts(
             literal.positive,
         )
 
-    def add_record_components(n: Any) -> Any:
-        if isinstance(n, Rule):
-            rule = n
-            head_hash = utils.hash_literal(rule.head)
-            if head_hash not in fact_head_id_map:  # not a fact
-
-                head_record_args = [
-                    Variable(f"{rule.head.name}{common.RECORD_ARG_PREFIX}{i}")
-                    for i in range(1, 1 + num)
-                ]
-
-                # store record args in columns (instead of rows)
-                # TODO: The program for finding all paths should not contain negative literals. keep this for now.
-                body_record_argnames_list = [
-                    [
-                        f"{literal.name}{common.RECORD_ARG_PREFIX}{i}"
-                        for literal in rule.body
-                        if  literal.positive
-                    ]
-                    for i in range(1, 1 + num)
-                ]
-
-                # construct unifications, e.g., t1 = t1'|t1'' ...
-                unifications = [
-                    Unification(
-                        hrarg,
-                        Variable(common.SOUFFLE_LOGICAL_OR.join(brargnames)),
-                        True,
-                    )
-                    for hrarg, brargnames in zip(
-                        head_record_args, body_record_argnames_list
-                    )
-                ]
-
-                return Rule(
-                    add_record_args(rule.head),
-                    [add_record_args(literal) for literal in rule.body] + unifications,
-                )
-
-            else:  # a fact
-                return Rule(
-                    add_id_args(rule.head, fact_head_id_map[head_hash]), [add_record_args(literal) for literal in rule.body] # if body is empty, add nothing. Otherwise, add record args for fact rules whose heads like `OperatorAt("<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>/if/14", "==", symlog_binding_symlog_symbolic_0, symlog_binding_symlog_symbolic_1, 1, 0)`. The record args are just placeholders.
-                )
-
-        return n
-
     def add_record_comps_for_rule(rule: Rule) -> Rule:
         head_record_args = [
-            Variable(f"{rule.head.name}{common.RECORD_ARG_PREFIX}{i}")
+            Variable(f"{rule.head.name}{common.HEAD_RECORD_ARG_PREFIX}{i}")
             for i in range(1, 1 + num)
         ]
 
-        # store record args in columns (instead of rows)
-        # TODO: The program for finding all paths should not contain negative literals. keep this for now.
+        # store record args in columns (instead of rows). TODO: The program for finding all paths should not contain negative literals. keep this for now.
         body_record_argnames_list = [
             [
-                f"{literal.name}{common.RECORD_ARG_PREFIX}{i}"
+                f"{literal.name}{common.BODY_RECORD_ARG_PREFIX}{i}"
                 for literal in rule.body
-                if  literal.positive
+                if  isinstance(literal, Literal) and literal.positive and literal.name not in common.SOUFFLE_INTRINSIC_PREDS # only consider literals
             ]
             for i in range(1, 1 + num)
         ]
@@ -137,26 +92,25 @@ def transform_for_recording_facts(
         # construct unifications, e.g., t1 = t1'|t1'' ...
         unifications = [
             Unification(
-                hrarg,
-                Variable(common.SOUFFLE_LOGICAL_OR.join(brargnames)),
+                hr_arg,
+                Variable(common.SOUFFLE_LOGICAL_OR.join(br_argnames)),
                 True,
             )
-            for hrarg, brargnames in zip(
+            for hr_arg, br_argnames in zip(
                 head_record_args, body_record_argnames_list
             )
         ]
 
         return Rule(
-            add_record_args(rule.head),
-            [add_record_args(literal) for literal in rule.body] + unifications,
+            add_record_args(rule.head, is_head=True),
+            [add_record_args(literal, is_head=False) for literal in rule.body] + unifications,
         )
 
     def add_record_comps_for_fact(rule: Rule) -> Rule:
         head_hash = utils.hash_literal(rule.head)
         return Rule(
-            add_id_args(rule.head, fact_head_id_map[head_hash]), [add_record_args(literal) for literal in rule.body] if rule.body else []
-        )# if body is empty, add nothing. Otherwise, add record args for fact rules whose heads like `OperatorAt("<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>/if/14", "==", symlog_binding_symlog_symbolic_0, symlog_binding_symlog_symbolic_1, 1, 0)`. The record args are just placeholders.
-
+            add_id_args(rule.head, fact_head_id_map[head_hash]), [add_record_args(literal, is_head=False) for literal in rule.body] if rule.body else []
+        )# if body is empty, add nothing. Otherwise, add record args for concrete fact rules. The record args are just placeholders.
 
     # transform facts and rules by adding record components
     rec_facts = [add_record_comps_for_fact(rule) for rule in p.rules if utils.hash_literal(rule.head) in fact_head_id_map]
@@ -261,8 +215,11 @@ def analyse_symbolic_constants(
                 p, lambda x: isinstance(x, Rule) and x.body
             ):  # non-facts rules
                 arg_at_loc = find_arg_at_loc(loc, rule)
-                if arg_at_loc is None:
-                    continue
+
+                if arg_at_loc is None or (isinstance(arg_at_loc, Variable) 
+                and arg_at_loc.name == common.DL_UNDERSCORE):
+                    continue # skip '_' variables
+
                 unifiable_locs = find_unifiable_locs_of_arg(
                     arg_at_loc, rule.body
                 ) - set([loc])
@@ -309,7 +266,9 @@ def analyse_symbolic_constants(
         unifiable_consts_map = dict()
 
         for loc, symvalues in eloc_symvalues_map.items():
-            unifiable_consts_map[tuple(symvalues)] = set( # set of in principle to-be-joined constants
+            # union of set of in principle to-be-joined constants and constants
+            # may at loc
+            unifiable_consts_map[tuple(symvalues)] = set(
                 itertools.chain(
                     *[loc_values_map[sloc] for sloc in symloc_unifiable_locs_map[loc]]
                 )
@@ -501,7 +460,7 @@ def transform_into_meta_program(p: Program) -> Program:
         if isinstance(n, Rule):
             if not n.body:
                 # fact
-                replaced = transform(
+                replaced_head = transform(
                     n.head,
                     lambda x: Variable(f"{common.BINDING_VARIABLE_PREFIX}{symvalue_for_name(x)}")
                     if x in symbolic_consts
@@ -515,7 +474,7 @@ def transform_into_meta_program(p: Program) -> Program:
 
                 return Rule(
                     add_binding_vars_to_literal(
-                        replaced, binding_vars_of_pred(n.head.name)
+                        replaced_head, binding_vars_of_pred(n.head.name)
                     ),
                     domain_body,
                 )
@@ -538,7 +497,32 @@ def transform_into_meta_program(p: Program) -> Program:
     return transform(p, add_binding_vars)
 
 
-def symvalue_for_name(x):
+def reset_for_recording_facts(p: Program, facts: List[Rule], num: int) -> Program:
+    """Remove record components from the program and facts."""
+
+    # remove both id args and record args
+    def remove_record_args(n):
+        if isinstance(n, Literal) and n.name not in common.SOUFFLE_INTRINSIC_PREDS:
+            return Literal(n.name, n.args[:-num], n.positive)
+        return n
+
+    def remove_record_unifications(n):
+        if isinstance(n, Rule):
+            # body = list(set(b for b in n.body) - set(l for l in n.body if isinstance(l, Unification) and common.HEAD_RECORD_ARG_PREFIX in l.left.name))
+            body = [b for b in n.body if not isinstance(b, Unification) or (isinstance(b, Unification) and not common.HEAD_RECORD_ARG_PREFIX in b.left.name)]
+            return Rule(n.head, body)
+        return n
+
+    reset_p = transform(transform(p, remove_record_args), remove_record_unifications)
+    reset_facts = [transform(f, remove_record_args) for f in facts]
+
+    # transform declarations. remove last num number types to each of the declarations
+    declarations = {name: types[:-num] for name, types in p.declarations.items()}
+
+    return Program(declarations, reset_p.inputs, reset_p.outputs, reset_p.rules + reset_facts)
+
+
+def symvalue_for_name(x: Number|String) -> str:
     if isinstance(x, Number):
         return abs(x.value)
     return x.value
@@ -675,7 +659,7 @@ def test_symconst_unifiable_consts_mapping(program_text):
     assert new_dict == answer
 
 
-def transform_input_facts(input_facts, declarations):
+def transform_input_facts(input_facts: Dict[str, List[List[str]]], declarations: Dict[str, List[str]]) -> List[Rule]:
     # transform input_fact into a list of fact rules
 
     def to_parsed_arg(x):
@@ -692,12 +676,33 @@ def transform_input_facts(input_facts, declarations):
     return fact_rules
 
 
-def create_sym_facts(idb_list, declarations):
-    '''Create symbolic facts for the given idb list for original program'''
+def transform_fact_rules(fact_rules: List[Rule]) -> Dict[str, List[List[str]]]:
+    # transform fact rules into a dict of facts
+
+    def to_str_arg(x):
+        if isinstance(x, Number):
+            return str(x.value)
+        elif isinstance(x, String):
+            return x.value
+        else:
+            raise ValueError('Unsupported type: {}'.format(type(x)))
+
+    facts = defaultdict(list)
+
+    for rule in fact_rules:
+        assert len(rule.body) == 0
+        
+        facts[rule.head.name].append([to_str_arg(x) for x in rule.head.args])
+
+    return facts
+
+
+def create_sym_facts(locs_list: List[Tuple[str, List[int]]], declarations: Dict[str, List[str]]) -> Dict[str, List[List[str]]]:
+    '''Create symbolic facts for the given location list for original program'''
     sym_cnt = 0
     sym_facts = defaultdict(list)
 
-    def to_sym_arg(t, idx):
+    def to_sym_arg(t: str, idx: int) -> str:
         if t == common.SOUFFLE_SYMBOL:
             return f"{common.SYMBOLIC_CONSTANT_PREFIX}{idx}"
         elif t == common.SOUFFLE_NUMBER:
@@ -705,18 +710,29 @@ def create_sym_facts(idb_list, declarations):
         else:
             raise ValueError('Unsupported type: {}'.format(type(t)))
 
-    def add_sym_fact(sym_cnt, name):
-        args = [to_sym_arg(t, sym_cnt + idx) for idx, t in enumerate(declarations[name])]
-        sym_facts[name].append(args)
-        return sym_cnt + len(declarations[name])
+    def to_placeholder_arg(t: str, pred_name: str) -> str:
+        if t == common.SOUFFLE_SYMBOL:
+            return f'{common.SYMBOLIC_SYMBOL_PLACEHOLDER}{pred_name}'
+        elif t == common.SOUFFLE_NUMBER:
+            return f'{common.SYMBOLIC_NUMBER_PLACEHOLDER}{pred_name}'
+        else:
+            raise ValueError('Unsupported type: {}'.format(type(t)))
 
-    for idb in idb_list:
-        sym_cnt = add_sym_fact(sym_cnt, idb)
+    def add_sym_fact(sym_cnt: int, locs: Tuple[str, List[int]]) -> int:
+        pred_name, indexes = locs
+        args = [to_sym_arg(t, sym_cnt + indexes.index(i)) if i in indexes else to_placeholder_arg(t, pred_name) for i, t in enumerate(declarations[pred_name])]
+        sym_facts[pred_name].append(args)
+        return sym_cnt + len(indexes)
+
+    for locs in locs_list:
+        sym_cnt = add_sym_fact(sym_cnt, locs)
 
     return sym_facts
 
 
-def transform_and_store_program(program, input_facts, output_file):
+def transform_program(program: Program, input_facts: Dict[str, List[List[str]]], is_store=True) -> Program:
+
+    output_file = os.path.join(common.TMP_DIR, 'transformed.dl')
 
     fact_rules = transform_input_facts(input_facts, program.declarations)
     program.rules.extend(fact_rules)
@@ -725,19 +741,19 @@ def transform_and_store_program(program, input_facts, output_file):
     declarations = transform_declarations(program)
     transformed.declarations.update(declarations)
 
-    # facts = create_naive_domain_facts(program)
     abstract_facts = create_abstract_domain_facts(program)
-    # transformed.rules.extend(facts + abstract_facts)
     transformed.rules.extend(abstract_facts)
 
     dir_name = os.path.dirname(output_file)
     if not os.path.exists(dir_name):
         os.makedirs(dir_name)
 
-    with open(output_file, 'w') as f:
-        f.write(pprint(transformed))
-
-    print('Program written to {}'.format(output_file))
+    if is_store:
+        with open(output_file, 'w') as f:
+            f.write(pprint(transformed))
+        print('Program written to {}'.format(output_file))
+    
+    return transformed
 
 
 if __name__ == '__main__':
@@ -753,13 +769,14 @@ if __name__ == '__main__':
 
     transformations = [    
         ('original', []),
-        ('small_transformed', ['OperatorAt', 'If_Var', 'If_Constant']),
+        # ('small_transformed', ['OperatorAt', 'If_Var', 'If_Constant']),
+        ('small_transformed_new', [('OperatorAt', [0, 1]), ('If_Var', [0, 2]), ('If_Constant', [0, 2])]),
         # ('large_transformed', ['OperatorAt', 'If_Var', 'If_Constant', 'JumpTarget', 'Instruction_Method', 'Dominates', 'Instruction_Index', 'BasicBlockHead', 'NextInSameBasicBlock'])
     ]
 
     for transformation in transformations:
-        name, idb_list = transformation
-        program_file = os.path.join(TEST_DIR, f'{name}_program.dl')
-        sym_facts = create_sym_facts(idb_list, program.declarations)
+        name, pred_locs_list = transformation
+        # program_file = os.path.join(TEST_DIR, f'{name}_program.dl')
+        sym_facts = create_sym_facts(pred_locs_list, program.declarations)
         facts = {k: sym_facts.get(k, []) + input_facts.get(k, []) for k in (input_facts.keys() | sym_facts.keys())}
-        transform_and_store_program(copy.deepcopy(program), facts, program_file)
+        transform_program(copy.deepcopy(program), facts)

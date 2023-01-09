@@ -50,8 +50,7 @@ def is_arg_symbolic(arg: String|Number) -> bool:
     elif isinstance(arg, Variable):
         return arg.name.startswith(common.BINDING_VARIABLE_PREFIX)
     else:
-        raise ValueError(f"Unexpected type {type(arg)} for argument {arg}.")
-
+        return False
 
 def is_number(s):
     try:
@@ -59,6 +58,15 @@ def is_number(s):
         return True
     except ValueError:
         return False
+
+def is_sublist(list1, list2) -> bool:
+    '''Returns True if list1 is a sublist of list2.'''
+    return all(item in list2 for item in list1)
+
+
+def lists_intersect(list1, list2):
+    '''Returns True if list1 and list2 have at least one element in common.'''
+    return any(elem in list2 for elem in list1)
 
 
 def store_graph(graph, file_path: str):
@@ -76,3 +84,11 @@ def store_graph(graph, file_path: str):
 def store_file(content: str, file_path: str):
     with open(file_path, 'w') as f:
         f.write(content)
+
+
+def rename_files(dir_path: str, old: str, new: str) -> None:
+    '''Converts suffix of files in a directory to a new suffix.'''
+    for filename in os.listdir(dir_path):
+        if old in filename:
+            os.rename(os.path.join(dir_path, filename), os.path.join(dir_path, filename.replace(old, new)))
+    
