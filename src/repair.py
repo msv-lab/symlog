@@ -149,7 +149,7 @@ def create_precedence_graph(dl_program_path: str, store_graph=True) -> nx.DiGrap
         for body_literal in rule.body:
             if not isinstance(body_literal, Literal):
                 continue
-            precedence_graph.add_edge(body_literal.name, rule.head.name, label=common.POS_LIT_LABEL if body_literal.positive else common.NEG_LIT_LABEL) #FIXME: label is based on common.DEFAULT_GRAPH_ATTR_NAME
+            precedence_graph.add_edge(body_literal.name, rule.head.name, label=common.POS_LIT_LABEL if body_literal.positive else common.NEG_LIT_LABEL) #FIXME: `label` is based on common.DEFAULT_GRAPH_ATTR_NAME
 
     if store_graph:
         utils.store_graph(precedence_graph, os.path.join(os.getcwd(), 'tmp','precedence_graph.png'))
@@ -257,7 +257,7 @@ def is_target_in_outputs(inp_fact_rules: List[Rule], p: Program, target_tuples: 
     # append the inputs to the program
     p = Program(p.declarations, p.inputs, p.outputs, p.rules + inp_fact_rules)
     # run program
-    output_relations = run_program(p, [])
+    output_relations = run_program(p, {})
 
     values =  [', '.join(v[:-num]) for v in itertools.chain(*output_relations.values())] # remove the last num values used for recording facts
 
@@ -309,6 +309,119 @@ def ddmin(test: Callable, p: Program, target_tuples: List[Rule], edbs: List[str]
     return True, inp
 
 
+def select_sym_locs(p: Program, preds: Set[str], forbidden_loc_list: List[Tuple[str, int]], rank: Callable, top_n: int=5) -> List[str]:
+
+    locs = [(pred, i) for pred in preds for i in range(len(p.declarations[pred])) if (pred, i) not in forbidden_loc_list]
+
+    locs = rank(locs, p)
+
+    return locs[:top_n]
+
+
+def contain_queries(results: Dict[str, List[List[str]]], queries: Dict[str, List[List[str]]]) -> bool:
+    if not queries:
+        return True
+    for pred in queries:
+        if pred not in results:
+            return False
+        return utils.is_sublist(queries[pred], results[pred])
+
+
+def rank_locations(edb_loc_list: List[Tuple[str, int]], p: Program) -> List[Tuple[str, int]]:
+    '''Rank locations based on the number of facts that are used at the location.'''
+    # TODO: implement it
+    return [('OperatorAt', [0, 1]), ('If_Var', [0, 2]), ('If_Constant', [0, 2])]
+
+
+def rank_fact_rules_for_neg_queries(fact_rules: List[Rule]) -> List[Rule]:
+    '''Rank fact rules based on the fact names.'''
+    def is_neg_fact_rule(fact_rule: Rule) -> bool:
+        return fact_rule.name.startswith(common.NEG_PREFIX)
+
+    neg_fact_rules, pos_fact_rules = [], []
+    for fact_rule in fact_rules:
+        (neg_fact_rules if is_neg_fact_rule(fact_rule) else pos_fact_rules).append(fact_rule)
+
+    return neg_fact_rules + pos_fact_rules
+
+def handle_neg_queries(stratum_p: Program, stratum: Dict[str, Set[str]], neg_queries: Dict[str, List[List[str]]], rank: Callable, top_n: int=1):
+
+    facts_for_neg_queries = []
+
+    q = queue.Queue()
+    is_reduced, reduced_inp_fact_rules = ddmin(is_target_in_outputs, stratum_p, neg_queries, stratum[common.DL_EDBS])
+
+    assert is_reduced
+
+    q.put(reduced_inp_fact_rules)
+
+    while not q.empty():
+        inp_facts = q.get()
+        
+        # save the 1-minimal inp_facts for neg_queries
+        facts_for_neg_queries.append(inp_facts)
+        
+        for fact in inp_facts:
+            # remove the fact from new stratum program
+            rules = [rule for rule in stratum_p.rules if rule != fact] 
+            new_stratum_p = Program(stratum_p.declarations, stratum_p.inputs, stratum_p.outputs, rules)
+            
+            # check if the new stratum program still can generate neg_queries
+            is_reduced, reduced_inp_fact_rules = ddmin(is_target_in_outputs, new_stratum_p, neg_queries, stratum[common.DL_EDBS])
+
+            if is_reduced:
+                q.put(reduced_inp_fact_rules)
+
+    query_rules_for_next_stratum = itertools.chain(*[rank(inp_facts)[:top_n] for inp_facts in facts_for_neg_queries])
+
+    return query_rules_for_next_stratum
+
+
+def handle_pos_queries(stratum_p: Program, stratum: Dict[str, Set[str]], forbidden_loc_list: List[Tuple[str, int]], pos_queries: Dict[str, List[List[str]]], input_facts: Dict[str, List[List[str]]]):
+    # select locs in edbs of stratum for symbolization        
+    locs_list = select_sym_locs(stratum_p.declarations, stratum[common.DL_EDBS], forbidden_loc_list, rank_locations)
+
+    # Create symbolic facts from the selected locations
+    sym_facts = create_sym_facts(locs_list, stratum_p.declarations)
+    
+    # Merge symbolic and input facts
+    facts = {k: sym_facts.get(k, []) + input_facts.get(k, []) for k in (input_facts.keys() | sym_facts.keys())}
+
+    # Transform the stratum program with the merged facts
+    stratum_trans_p = transform_program(stratum_p, facts)
+
+    # Run the transformed program
+    output = run_program(stratum_trans_p, {}, common.SOUFFLE_COMPILE_MODE)
+
+    # Check if the output of the program contains the positive queries
+    is_fixed = contain_queries(output, pos_queries)
+    if is_fixed:
+        is_reduced, key_fact_rules = ddmin(is_target_in_outputs, stratum_trans_p, pos_queries, stratum[common.DL_EDBS]) 
+        
+        assert is_reduced # the first returned value must be True
+
+        return True, key_fact_rules, locs_list
+    return False, [], locs_list
+
+
+def process_fact_rules(added_facts: List[Rule], removed_facts: List[Rule]) -> Dict[str, List[List[str]]]:
+    # transform the facts to the format of the output of the program
+    added_facts = transform_fact_rules(added_facts)
+    removed_facts = transform_fact_rules(removed_facts)
+
+    # place negated facts to corresponding added/removed facts
+    to_remove = {k.replace(common.NEG_PREFIX, ''): v for k, v in added_facts.items() if k.startswith(common.NEG_PREFIX)}
+    to_add = {k.replace(common.NEG_PREFIX, ''): v for k, v in removed_facts.items() if k.startswith(common.NEG_PREFIX)}
+
+    added_facts = {k: v for k, v in added_facts.items() if not k.startswith(common.NEG_PREFIX)}
+    added_facts.update(to_add)
+
+    removed_facts = {k: v for k, v in removed_facts.items() if not k.startswith(common.NEG_PREFIX)}
+    removed_facts.update(to_remove) 
+
+    return added_facts, removed_facts
+
+
 def repair(the_bug_fact: List[str], data_path: str, bug_id: str, dl_program_path: str) -> None:
 
     time_out = 60
@@ -317,101 +430,9 @@ def repair(the_bug_fact: List[str], data_path: str, bug_id: str, dl_program_path
     strata = partition_to_strata(dl_program_path)
 
     # get facts for all strata
-    facts_dir = gen_facts_by_stratum(dl_program_path, strata, bug_id, data_dir)
+    facts_dir = gen_facts_by_stratum(dl_program_path, strata, data_dir)
     input_facts = load_relations(facts_dir)
 
-    def select_sym_locs(declarations: Dict[str, List[str]], preds: Set[str], forbidden_loc_list: List[Tuple[str, int]], rank: Callable, top_n: int=5) -> List[str]:
-        locs = [(pred, i) for pred in preds for i in range(len(declarations[pred])) if (pred, i) not in forbidden_loc_list]
-        locs = sorted(locs, key=lambda x: rank(x[0], x[1]), reverse=True)
-
-        return locs[:top_n]
-
-    def contain_queries(results: Dict[str, List[List[str]]], queries: Dict[str, List[List[str]]]) -> bool:
-        if not queries:
-            return True
-        for pred in queries:
-            if pred not in results:
-                return False
-            return utils.is_sublist(queries[pred], results[pred])
-
-    def handle_pos_queries(stratum_p: Program, stratum: Dict[str, Set[str]], forbidden_loc_list: List[Tuple[str, int]], pos_queries: Dict[str, List[List[str]]]):
-        # select locs in edbs of stratum for symbolization        
-        locs_list = select_sym_locs(stratum_p.declarations, stratum[common.DL_EDBS], forbidden_loc_list, lambda pred, i: 1, 5) # TODO: rank function
-
-        # Create symbolic facts from the selected locations
-        sym_facts = create_sym_facts(locs_list, stratum_p.declarations)
-        
-        # Merge symbolic and input facts
-        facts = {k: sym_facts.get(k, []) + input_facts.get(k, []) for k in (input_facts.keys() | sym_facts.keys())}
-
-        # Transform the stratum program with the merged facts
-        stratum_trans_p = transform_program(stratum_p, facts)
-
-        # Run the transformed program
-        output = run_program(stratum_trans_p, [])
-
-        # Check if the output of the program contains the positive queries
-        is_fixed = contain_queries(output, pos_queries)
-        if is_fixed:
-            is_reduced, key_fact_rules = ddmin(is_target_in_outputs, stratum_trans_p, pos_queries, stratum[common.DL_EDBS]) 
-            
-            assert is_reduced # the first returned value must be True
-
-            return True, key_fact_rules, locs_list
-        return False, [], locs_list
-
-    def handle_neg_queries(stratum_p: Program, stratum: Dict[str, Set[str]], neg_queries: Dict[str, List[List[str]]], rank: Callable, top_n: int=1):
-
-        facts_for_neg_queries = []
-
-        q = queue.Queue()
-        is_reduced, reduced_inp_fact_rules = ddmin(is_target_in_outputs, stratum_p, neg_queries, stratum[common.DL_EDBS])
-
-        assert is_reduced
-
-        q.put(reduced_inp_fact_rules)
-
-        while not q.empty():
-            inp_facts = q.get()
-            
-            # save the 1-minimal inp_facts for neg_queries
-            facts_for_neg_queries.append(inp_facts)
-            
-            for fact in inp_facts:
-                # remove the fact from new stratum program
-                rules = [rule for rule in stratum_p.rules if rule != fact] 
-                new_stratum_p = Program(stratum_p.declarations, stratum_p.inputs, stratum_p.outputs, rules)
-                
-                # check if the new stratum program still can generate neg_queries
-                is_reduced, reduced_inp_fact_rules = ddmin(is_target_in_outputs, new_stratum_p, neg_queries, stratum[common.DL_EDBS])
-
-                if is_reduced:
-                    q.put(reduced_inp_fact_rules)
-
-        query_rules_for_next_stratum = itertools.chain(*[sorted(inp_facts, key=lambda x: rank(x), reverse=True)[:top_n] for inp_facts in facts_for_neg_queries])
-
-        return query_rules_for_next_stratum
-
-        # reduced_inp_facts = sorted(reduced_inp_facts, key=lambda x: rank(x), reverse=True)
-
-        # return reduced_inp_facts[:top_n]
-
-    def process_fact_rules(added_facts: List[Rule], removed_facts: List[Rule]) -> Dict[str, List[List[str]]]:
-        # transform the facts to the format of the output of the program
-        added_facts = transform_fact_rules(added_facts)
-        removed_facts = transform_fact_rules(removed_facts)
-
-        # place negated facts to corresponding added/removed facts
-        to_remove = {k.replace(common.NEG_PREFIX, ''): v for k, v in added_facts.items() if k.startswith(common.NEG_PREFIX)}
-        to_add = {k.replace(common.NEG_PREFIX, ''): v for k, v in removed_facts.items() if k.startswith(common.NEG_PREFIX)}
-
-        added_facts = {k: v for k, v in added_facts.items() if not k.startswith(common.NEG_PREFIX)}
-        added_facts.update(to_add)
-
-        removed_facts = {k: v for k, v in removed_facts.items() if not k.startswith(common.NEG_PREFIX)}
-        removed_facts.update(to_remove) 
-
-        return added_facts, removed_facts
 
     def repair_by_stratum(stratum: Dict[str, Set[str]], idx: int, queries, forbidden_queries) -> Tuple[bool, Dict[str, List[List[str]]]]:
 
@@ -427,30 +448,32 @@ def repair(the_bug_fact: List[str], data_path: str, bug_id: str, dl_program_path
         stratum_p = Program.load(os.path.join(common.TMP_DIR, f'stratum_{idx}.dl'))
 
         while not time_out:
-            is_fixed, added_fact_rules, forb_loc_list2 = handle_pos_queries(stratum_p, stratum, forb_loc_list, pos_queries)
+            is_fixed, added_fact_rules, forb_loc_list2 = handle_pos_queries(stratum_p, stratum, forb_loc_list, pos_queries, input_facts)
             if not is_fixed:
                 forb_loc_list = forb_loc_list + forb_loc_list2 
                 continue
 
-            removed_fact_rules = handle_neg_queries(stratum_p, stratum, neg_queries, lambda x: x) #TODO: rank the neg queries
+            removed_fact_rules = handle_neg_queries(stratum_p, stratum, neg_queries, rank_fact_rules_for_neg_queries)
 
             added_facts, removed_facts = process_fact_rules(added_fact_rules, removed_fact_rules)
 
             if not utils.lists_intersect(added_facts, removed_facts):
-                queries_for_next_stratum = {common.POS_QUERY: added_facts, common.NEG_QUERY: removed_facts}
 
                 if utils.lists_intersect(added_facts, forbidden_queries[common.POS_QUERY]) or utils.lists_intersect(removed_facts, forbidden_queries[common.NEG_QUERY]):
                     continue
 
+                queries_for_next_stratum = {common.POS_QUERY: added_facts, common.NEG_QUERY: removed_facts}
+
                 return True, queries_for_next_stratum, {}
+
             else:
                 forb_loc_list = forb_loc_list + forb_loc_list2
 
         return False, {}, queries
 
     stratum_no = len(strata) - 1
-    queries = {common.POS_QUERY: [], common.NEG_QUERY: {'ReachableNullAtLine':[the_bug_fact]}}
-    forbidden_queries = {common.POS_QUERY: [], common.NEG_QUERY: []}
+    queries = {common.POS_QUERY: {}, common.NEG_QUERY: {'ReachableNullAtLine':[the_bug_fact]}}
+    forbidden_queries = {common.POS_QUERY: {}, common.NEG_QUERY: {}}
 
     queries_of_strata = [{} for _ in range(len(strata))]
 
@@ -470,22 +493,20 @@ def repair(the_bug_fact: List[str], data_path: str, bug_id: str, dl_program_path
             queries = queries_of_strata[stratum_no]
 
 
-if __name__ == '__main__':
-
+def example():
     the_bug_fact = '<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>	92	4493	<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>/r#_4473	Virtual Method Invocation'
 
     data_path = '/home/liuyu/info3600-bugchecker-benchmarks/digger/out/jfreechart-1.2.0-pre1/database'
 
     bug_id = 'chart4'
 
-    DATA_DIR = extract_facts_around_bug(bug_id, the_bug_fact, data_path)
-    # DATA_DIR = "/home/liuyu/symlog/tmp/spurious_database/chart4"
+    # DATA_DIR = extract_facts_around_bug(bug_id, the_bug_fact, data_path)
+    DATA_DIR = '/home/liuyu/symlog/tmp/spurious_database/chart4'
 
     strata = partition_to_strata('may-cfg.dl')
 
-    gen_facts_by_stratum('may-cfg.dl', strata, bug_id, DATA_DIR)
+    gen_facts_by_stratum('may-cfg.dl', strata, DATA_DIR)
 
-    # edbs_list = [stratum[common.DL_EDBS] for stratum in strata]
     fact_names = strata[0][common.DL_EDBS]
     program = parse(utils.read_file("tmp/stratum_2.dl"))
 
@@ -499,15 +520,10 @@ if __name__ == '__main__':
 
     _, tar_inp = ddmin(is_target_in_outputs, program, target_tuples, fact_names)
 
-    for i in tar_inp:
+    for i in transform_fact_rules(tar_inp):
         print(i)
 
-    # transfromed_p = parse(utils.read_file("tests/small_transformed_program.dl"))
 
-    # n = 2
+if __name__ == '__main__':
 
-    # transformed, facts = transform_for_recording_facts(transfromed_p, n, fact_names)
-
-    # utils.store_file(pprint(transformed), "tests/transformed_record_program.dl")
-
-    # print("transformed program for recording facts is stored in tests/transformed_record_program.dl")
+    example()

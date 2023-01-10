@@ -5,6 +5,7 @@ import itertools
 import csv
 from collections import namedtuple
 from typing import Union
+import common
 
 from lark import Lark, Transformer, v_args
 
@@ -272,7 +273,7 @@ def write_relations(directory, relations):
                 writer.writerow(tuple)
 
 
-def run_program(program, relations):
+def run_program(program, relations, mode=common.SOUFFLE_INTERPRET_MODE):
     with NamedTemporaryFile() as datalog_script:
         datalog_script.write(pprint(program).encode())
         datalog_script.flush()
@@ -281,10 +282,14 @@ def run_program(program, relations):
             with TemporaryDirectory() as output_directory:
                 cmd = [
                     "souffle",
+                    datalog_script.name,
                     "-F", input_directory,
                     "-D", output_directory,
-                    datalog_script.name
+                    "-w",
+                    "--jobs=auto",
                 ]
+                if mode == common.SOUFFLE_COMPILE_MODE:
+                    cmd.append("-c")
                 try:
                     run(cmd, check=True, stdout=DEVNULL)#, stderr=DEVNULL)
                 except CalledProcessError:
