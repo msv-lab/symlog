@@ -1,4 +1,3 @@
 lark
-sympy
 pytest
 networkx

@@ -1,5 +1,7 @@
 import sys
 import os
+from typing import List, Dict, List
+
 
 SYMBOLIC_CONSTANT_PREFIX = 'symlog_symbolic_'
 BINDING_VARIABLE_PREFIX = 'symlog_binding_'
@@ -53,3 +55,6 @@ POS_QUERY = 'pos_query'
 NEG_QUERY = 'neg_query'
 
 TMP_DIR = os.path.join(os.getcwd(), 'tmp')
+
+# type
+PredTuplesDict = Dict[str, List[List[str]]]

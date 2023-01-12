@@ -9,16 +9,17 @@ import argparse
 from subprocess import run
 import queue
 import copy
+from collections import defaultdict
 import common
 import utils
 from souffle import Literal, Program, Rule, parse, pprint, run_program, load_relations
 from transform_to_meta_program import transform_for_recording_facts, transform_input_facts, reset_for_recording_facts, transform_program, create_sym_facts, transform_fact_rules, reset_fact_rules
-
+from semantics_checker import semantics_filter, If_checker, JumpTarget_checker, if_combo_checker
 
 PASS = 0
 FAIL = 1
 # predicate name -> list of tuples
-PredTuplesDict = Dict[str, List[List[str]]]
+PredTuplesDict = common.PredTuplesDict
 
 
 parser = argparse.ArgumentParser(description='Transform Datalog program to meta program.')
@@ -137,8 +138,7 @@ def gen_facts_by_stratum(ori_program_path: str, strata: List[Dict[str, List[str]
 
     cmd = ["souffle", "-F", data_dir, "-D", data_dir, updated_program_path, "-w", "--jobs=auto"]
     run(cmd) # generate facts for each stratum
-    # remove empty files
-    utils.remove_empty_files(data_dir)
+    utils.remove_empty_files(data_dir) # remove empty files
     print(f'Facts for each stratum are stored at {data_dir}.')
     return data_dir
 
@@ -264,15 +264,12 @@ def is_target_in_outputs(inp_fact_rules: List[Rule], p: Program, target_tuples: 
         return any(string in s for s in lst)
 
     if mode == common.SOUFFLE_COMPILE_MODE or mode == common.SOUFFLE_INTERPRET_MODE:
-        # append the inputs to the program
         p = Program(p.declarations, p.inputs, p.outputs, p.rules + inp_fact_rules)
-        # run program
         output_relations = run_program(p, {}, mode)
+
     elif mode == common.OPTIMIZATION_MODE:
         input_facts = transform_fact_rules(inp_fact_rules)
         p = Program(p.declarations, p.inputs + list(input_facts.keys()), p.outputs, p.rules)
-        # # debug
-        # utils.store_file(pprint(p), os.path.join(os.getcwd(), 'tmp', 'debug.dl'))
         output_relations = run_program(p, input_facts, mode)
 
     values =  [', '.join(v) for v in itertools.chain(*output_relations.values())] # remove the last num values used for recording facts
@@ -327,20 +324,17 @@ def ddmin(test: Callable, p: Program, target_tuples: PredTuplesDict, edbs: List[
 
 
 def select_sym_locs(p: Program, preds: Set[str], forbidden_loc_list: List[Tuple[str, int]], rank: Callable, top_n: int=5) -> List[str]:
-
     locs = [(pred, i) for pred in preds for i in range(len(p.declarations[pred])) if (pred, i) not in forbidden_loc_list]
-
-    locs = rank(locs, p)
-
-    return locs[:top_n]
+    locs, same_loc_list = rank(locs, p)
+    return locs[:top_n], same_loc_list
 
 
-def map_queries(results: PredTuplesDict, queries: PredTuplesDict) -> List[str]:
+def map_queries(results: PredTuplesDict, queries: PredTuplesDict) -> PredTuplesDict:
     # queries are not empty
-    def match_queries(queries: List[List[str]], outputs: List[List[str]]) -> List[str]:
+    def match_queries(queries: List[List[str]], outputs: List[List[str]]) -> List[List[str]]:
         # TODO: if there are multiple matches, we should check if the
         # assignments of symbolic constants in matches are consistant with each other.
-        matched_queries = [next((oup for oup in outputs if match_query(q, oup)), None) for q in queries]
+        matched_queries = [oup for q in queries for oup in outputs if match_query(q, oup)]
         return matched_queries
 
     def match_query(query: List[str], result: List[str]) -> bool:
@@ -351,9 +345,9 @@ def map_queries(results: PredTuplesDict, queries: PredTuplesDict) -> List[str]:
     return {pred: match_queries(queries[pred], results[pred]) for pred in queries}
 
 
-def rank_locations(edb_loc_list: List[Tuple[str, int]], p: Program) -> List[Tuple[str, int]]:
+def rank_locations(edb_loc_list: List[Tuple[str, int]], p: Program):
     # TODO: implement it
-    return [('OperatorAt', [0, 1]), ('If_Var', [0, 2]), ('If_Constant', [0, 2])]
+    return [('OperatorAt', [0, 1]), ('If_Var', [0, 2]), ('If_Constant', [0, 2]), ('JumpTarget', [0, 1])], [('OperatorAt', 0), ('If_Var', 0), ('If_Constant', 0), ('JumpTarget', 1)] # ('JumpTarget', [1])
 
 
 def rank_fact_rules_for_neg_queries(fact_rules: List[Rule]) -> List[Rule]:
@@ -367,7 +361,6 @@ def rank_fact_rules_for_neg_queries(fact_rules: List[Rule]) -> List[Rule]:
     return neg_fact_rules + pos_fact_rules
 
 def handle_neg_queries(stratum_p: Program, stratum: Dict[str, Set[str]], neg_queries: PredTuplesDict, rank: Callable, input_facts: PredTuplesDict, top_n: int=1):
-
     if not neg_queries:
         return []
 
@@ -412,9 +405,9 @@ def handle_pos_queries(stratum_p: Program, stratum: Dict[str, Set[str]], forbidd
         return True, [], []
     
     # select locs in edbs of stratum for symbolization        
-    locs_list = select_sym_locs(stratum_p, stratum[common.DL_EDBS], forbidden_loc_list, rank_locations)
+    locs_list, same_loc_list = select_sym_locs(stratum_p, stratum[common.DL_EDBS], forbidden_loc_list, rank_locations)
     # create symbolic facts from the selected locations
-    sym_facts = create_sym_facts(locs_list, stratum_p.declarations)
+    sym_facts = create_sym_facts(locs_list, stratum_p.declarations, same_loc_list)
     # merge symbolic and input facts
     facts = {k: sym_facts.get(k, []) + input_facts.get(k, []) for k in (input_facts.keys() | sym_facts.keys())}
     # add outputs to stratum_p
@@ -423,10 +416,11 @@ def handle_pos_queries(stratum_p: Program, stratum: Dict[str, Set[str]], forbidd
     transformed_stratum_p = transform_program(p, facts)
     # run the transformed program
     output = run_program(transformed_stratum_p, {}, common.SOUFFLE_COMPILE_MODE)
-    # check if the output of the program contains the positive queries
-    generated_queries = map_queries(output, pos_queries)
+    # map positive queries to the output of the transformed program
+    mapped_queries = map_queries(output, pos_queries)
+    # check if the mapped queries are satisfied
 
-    def map_symbols_to_fact_rules() -> List[Rule]:
+    def map_symbols_to_fact_rules(mapped_queries: PredTuplesDict) -> List[Rule]:
         def get_symbol_list(rules, pos_queries):
             matching_rule = next(
                 itertools.dropwhile(
@@ -444,28 +438,45 @@ def handle_pos_queries(stratum_p: Program, stratum: Dict[str, Set[str]], forbidd
             else:
                 return []
 
-        def update_symbols(symbols, symbol_list):
+        def create_symbol_mappings(symbols, symbol_list):
+            sym_mappings = []
             for name in pos_queries:
-                assert name in generated_queries
-                for gq, pq in zip(generated_queries[name], pos_queries[name]):
+                assert name in mapped_queries
+                sym_mappings = []
+                for gq, pq in itertools.product(mapped_queries[name], pos_queries[name]):
+                    new_symbols = copy.deepcopy(symbols)
                     for i, arg in enumerate(pq):
                         if utils.is_arg_symbolic(gq[i]):
-                            symbols[gq[i]] = arg
+                            new_symbols[gq[i]] = arg
                     for i in range(len(pq), len(gq)):
-                        if symbols[symbol_list[i-len(pq)]] is None:
-                            symbols[symbol_list[i-len(pq)]] = gq[i]
-            return symbols
+                        if new_symbols[symbol_list[i-len(pq)]] is None:
+                            new_symbols[symbol_list[i-len(pq)]] = gq[i]
+                    sym_mappings.append(new_symbols)
+
+            return sym_mappings
+
+        def sym_mappings_to_facts(sym_mapping_list):
+            facts = defaultdict(list)
+            for pred, args_list in sym_facts.items():
+                for args in args_list:
+                    for mapping in sym_mapping_list:
+                        new_args = [mapping[arg] if utils.is_arg_symbolic(arg) else arg for arg in args]
+                        facts[pred].append(new_args)
+                facts[pred] = [list(x) for x in set(tuple(x) for x in facts[pred])]
+            return facts
 
         symbol_list = get_symbol_list(transformed_stratum_p.rules, pos_queries)
         symbols = {arg: None for args_list in sym_facts.values() for args in args_list for arg in args if utils.is_arg_symbolic(arg)}
-        symbols = update_symbols(symbols, symbol_list)
-        facts = {k: [[symbols[arg] if utils.is_arg_symbolic(arg) else arg for arg in args] for args in args_list] for k, args_list in sym_facts.items()}
+        
+        sym_mapping_list = create_symbol_mappings(symbols, symbol_list)
+        mapped_facts = sym_mappings_to_facts(sym_mapping_list)
+        mapped_facts = semantics_filter(mapped_facts, input_facts, [If_checker, JumpTarget_checker], if_combo_checker)
 
-        return transform_input_facts(facts, stratum_p.declarations)
+        return transform_input_facts(mapped_facts, stratum_p.declarations)
 
-    if generated_queries: # contains the positive queries
+    if mapped_queries:
         # map symbolic facts to the actual fact rules generated by the program
-        query_rules_for_next_stratum = map_symbols_to_fact_rules()
+        query_rules_for_next_stratum = map_symbols_to_fact_rules(mapped_queries)
         return True, query_rules_for_next_stratum, []
     else:
         return False, [], locs_list
@@ -493,9 +504,8 @@ def repair(the_bug_fact: List[str], data_path: str, bug_id: str, dl_program_path
 
     time_out = False
 
-    # data_dir = extract_facts_around_bug(bug_id, the_bug_fact, data_path)
-    # FIXME: uncomment the above line and remove the following line
-    data_dir = '/home/liuyu/symlog/tmp/spurious_database/chart4'
+    data_dir = extract_facts_around_bug(bug_id, the_bug_fact, data_path)
+    # data_dir = '/home/liuyu/symlog/tmp/spurious_database/chart4'
     strata = partition_to_strata(dl_program_path)
 
     # get facts for all strata
@@ -586,47 +596,18 @@ def repair(the_bug_fact: List[str], data_path: str, bug_id: str, dl_program_path
     return result
 
 
-def example():
-    the_bug_fact = '<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>	92	4493	<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>/r#_4473	Virtual Method Invocation'
-
-    data_path = '/home/liuyu/info3600-bugchecker-benchmarks/digger/out/jfreechart-1.2.0-pre1/database'
-
-    bug_id = 'chart4'
-
-    # DATA_DIR = extract_facts_around_bug(bug_id, the_bug_fact, data_path)
-    DATA_DIR = '/home/liuyu/symlog/tmp/spurious_database/chart4'
-
-    strata = partition_to_strata('may-cfg.dl')
-
-    gen_facts_by_stratum('may-cfg.dl', strata, DATA_DIR)
-
-    fact_names = strata[0][common.DL_EDBS]
-    program = parse(utils.read_file("tmp/stratum_2.dl"))
-
-    input_facts = load_relations(DATA_DIR)
-
-    fact_rules = transform_input_facts(input_facts, program.declarations)
-    program.rules.extend(fact_rules)
-
-    tar_tuple =  ", ".join(the_bug_fact.split("\t"))
-    target_tuples = [tar_tuple]
-
-    _, tar_inp = ddmin(is_target_in_outputs, program, target_tuples, fact_names)
-
-    for i in transform_fact_rules(tar_inp):
-        print(i)
-
-
 if __name__ == '__main__':
 
-    # example()
+    dl_path = 'may-cfg.dl'
 
     the_bug_fact = '<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>	92	4493	<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>/r#_4473	Virtual Method Invocation'.split('\t')
-
     data_path = '/home/liuyu/info3600-bugchecker-benchmarks/digger/out/jfreechart-1.2.0-pre1/database'
-
     bug_id = 'chart4'
+    
 
-    res = repair(the_bug_fact, data_path, bug_id, 'may-cfg.dl')
-    for i, v in res.items():
+    res = repair(the_bug_fact, data_path, bug_id, dl_path)
+    
+    for i, v in res[common.POS_QUERY].items():
+        print(f'{i}: {v}')
+    for i, v in res[common.NEG_QUERY].items():
         print(f'{i}: {v}')
