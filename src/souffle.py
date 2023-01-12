@@ -5,6 +5,7 @@ import itertools
 import csv
 from collections import namedtuple
 from typing import Union
+import os
 import common
 
 from lark import Lark, Transformer, v_args
@@ -274,28 +275,61 @@ def write_relations(directory, relations):
 
 
 def run_program(program, relations, mode=common.SOUFFLE_INTERPRET_MODE):
+
+    def run_cmd(cmd):
+        try:
+            run(cmd, check=True, stdout=DEVNULL)#, stderr=DEVNULL)
+        except CalledProcessError:
+            print("----- error while solving: ----")
+            print(pprint(program))
+            print("---- on -----------------------")
+            print(relations)
+            exit(1)
+
     with NamedTemporaryFile() as datalog_script:
         datalog_script.write(pprint(program).encode())
         datalog_script.flush()
         with TemporaryDirectory() as input_directory:
             write_relations(input_directory, relations)
             with TemporaryDirectory() as output_directory:
-                cmd = [
-                    "souffle",
-                    datalog_script.name,
-                    "-F", input_directory,
-                    "-D", output_directory,
-                    "-w",
-                    "--jobs=auto",
-                ]
-                if mode == common.SOUFFLE_COMPILE_MODE:
-                    cmd.append("-c")
-                try:
-                    run(cmd, check=True, stdout=DEVNULL)#, stderr=DEVNULL)
-                except CalledProcessError:
-                    print("----- error while solving: ----")
-                    print(pprint(program))
-                    print("---- on -----------------------")
-                    print(relations)
-                    exit(1)
+                if mode == common.SOUFFLE_INTERPRET_MODE:
+                    cmd = [
+                        "souffle",
+                        datalog_script.name,
+                        "-F", input_directory,
+                        "-D", output_directory,
+                        "-w",
+                        "--jobs=auto",
+                    ]
+                    run_cmd(cmd)
+                elif mode == common.SOUFFLE_COMPILE_MODE:
+                    cmd = [
+                        "souffle",
+                        datalog_script.name,
+                        "-F", input_directory,
+                        "-D", output_directory,
+                        "-c",
+                        "-w",
+                        "--jobs=auto",
+                    ]
+                    run_cmd(cmd)
+                elif mode == common.OPTIMIZATION_MODE:
+                    tmp_dir = common.TMP_DIR
+                    cmd1 = [
+                        "souffle",
+                        "-o",
+                        f"{tmp_dir}/binary",
+                        datalog_script.name,
+                        "-w",
+                        "--jobs=auto",
+                    ]
+                    cmd2 = [
+                        f"{tmp_dir}/binary",
+                        "-F", input_directory,
+                        "-D", output_directory,
+                        "--jobs=auto",
+                    ]
+                    if not os.path.exists(f"{tmp_dir}/binary"):
+                        run_cmd(cmd1)
+                    run_cmd(cmd2)
                 return load_relations(output_directory)

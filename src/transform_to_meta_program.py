@@ -497,24 +497,32 @@ def transform_into_meta_program(p: Program) -> Program:
     return transform(p, add_binding_vars)
 
 
+# remove both id args and record args
+def remove_record_args(n, num: int):
+    if isinstance(n, Literal) and n.name not in common.SOUFFLE_INTRINSIC_PREDS:
+        return Literal(n.name, n.args[:-num], n.positive)
+    return n
+
+
+def remove_record_unifications(n):
+    if isinstance(n, Rule):
+        body = [b for b in n.body if not isinstance(b, Unification) or (isinstance(b, Unification) and not common.HEAD_RECORD_ARG_PREFIX in b.left.name)]
+        return Rule(n.head, body)
+    return n
+
+
+def reset_fact_rules(facts: List[Rule], num: int) -> List[Rule]:
+    return [transform(f, lambda x: remove_record_args(x, num)) for f in facts]
+
+
+def reset_program_body(p: Program, num: int) -> Program:
+    return transform(transform(p, lambda x: remove_record_args(x, num)), remove_record_unifications)
+
+
 def reset_for_recording_facts(p: Program, facts: List[Rule], num: int) -> Program:
     """Remove record components from the program and facts."""
-
-    # remove both id args and record args
-    def remove_record_args(n):
-        if isinstance(n, Literal) and n.name not in common.SOUFFLE_INTRINSIC_PREDS:
-            return Literal(n.name, n.args[:-num], n.positive)
-        return n
-
-    def remove_record_unifications(n):
-        if isinstance(n, Rule):
-            # body = list(set(b for b in n.body) - set(l for l in n.body if isinstance(l, Unification) and common.HEAD_RECORD_ARG_PREFIX in l.left.name))
-            body = [b for b in n.body if not isinstance(b, Unification) or (isinstance(b, Unification) and not common.HEAD_RECORD_ARG_PREFIX in b.left.name)]
-            return Rule(n.head, body)
-        return n
-
-    reset_p = transform(transform(p, remove_record_args), remove_record_unifications)
-    reset_facts = [transform(f, remove_record_args) for f in facts]
+    reset_p = reset_program_body(p, num)
+    reset_facts = reset_fact_rules(facts, num)
 
     # transform declarations. remove last num number types to each of the declarations
     declarations = {name: types[:-num] for name, types in p.declarations.items()}

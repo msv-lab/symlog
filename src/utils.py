@@ -49,6 +49,10 @@ def is_arg_symbolic(arg: String|Number) -> bool:
         return arg.value in common.SYMLOG_NUM_POOL
     elif isinstance(arg, Variable):
         return arg.name.startswith(common.BINDING_VARIABLE_PREFIX)
+    elif isinstance(arg, str) and not is_number(arg):
+        return arg.startswith(common.SYMBOLIC_CONSTANT_PREFIX)
+    elif isinstance(arg, str) and is_number(arg):
+        return int(arg) in common.SYMLOG_NUM_POOL
     else:
         return False
 
@@ -81,14 +85,20 @@ def store_graph(graph, file_path: str):
     plt.savefig(file_path)
 
 
-def store_file(content: str, file_path: str):
+def write_file(content: str, file_path: str):
     with open(file_path, 'w') as f:
         f.write(content)
 
 
 def rename_files(dir_path: str, old: str, new: str) -> None:
-    '''Converts suffix of files in a directory to a new suffix.'''
     for filename in os.listdir(dir_path):
         if old in filename:
             os.rename(os.path.join(dir_path, filename), os.path.join(dir_path, filename.replace(old, new)))
+
+
+def remove_empty_files(dir_path: str) -> None:
+    for f in os.listdir(dir_path):
+        if os.path.getsize(os.path.join(dir_path, f)) == 0:
+            os.remove(os.path.join(dir_path, f))
+
     
