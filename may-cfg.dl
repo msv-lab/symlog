@@ -35,7 +35,7 @@
 
 .decl AssignBinop(ins: symbol, i: number, to: symbol, m: symbol)
 
-.decl AssignOperFrom(ins: symbol, from: symbol)
+.decl AssignOperFrom(ins: symbol, pos:number, from: symbol)
 
 .decl Var_Type(var: symbol, type: symbol)
 
@@ -120,14 +120,14 @@ NullAt(meth, index, var, "Unary Operator") :-
 VarPointsToNull(var, _),
 !MustNonNullAt(index, ins, var, meth),
 AssignUnop(ins, index, _, meth),
-AssignOperFrom(ins, var).
+AssignOperFrom(ins, _, var).
 
 
 NullAt(meth, index, var, "Binary Operator") :-
 VarPointsToNull(var, _),
 !MustNonNullAt(index, ins, var, meth),
 AssignBinop(ins, index, _, meth),
-AssignOperFrom(ins, var).
+AssignOperFrom(ins, _, var).
 
 
 NullAt(meth, index, "throw null", "Throw Null") :-

@@ -43,6 +43,7 @@ def extract_facts_around_bug(bug_id: str, the_bug_fact: List[str], data_path: st
     os.makedirs(SPU_EDB_PATH)
 
     TARGET_FILENAME_LIST = ['VarPointsTo.csv']
+    # TARGET_FILENAME_LIST = []
 
     def line_in_target_function(line: str, ext: str) -> bool|None:
         if ext == '.facts':
@@ -124,7 +125,7 @@ def gen_facts_by_stratum(ori_program_path: str, strata: List[Dict[str, List[str]
     outputs = list(set(itertools.chain(*[stratum[common.DL_EDBS] for stratum in strata])) | set(add_neg_prefix(edb) for stratum in strata for edb in stratum[common.DL_NEG_EDBS]))
 
     # inputs are real edbs
-    inputs = strata[0][common.DL_EDBS]
+    inputs = set(itertools.chain(*[stratum[common.DL_EDBS] for stratum in strata])).difference(set(itertools.chain(*[set(stratum[common.DL_SCHS]).difference(set(stratum[common.DL_EDBS])) for stratum in strata])))
 
     updated_program = Program(declarations, inputs, outputs, ori_program.rules + rules)
 
@@ -250,7 +251,7 @@ def partition_to_strata(dl_program_path: str) -> List[Dict[str, List[str]]]:
     # Get strata info from the leq graph
     strata_list = [get_stratum_info(precedence_graph, cc) for cc in nx.connected_components(leq_graph)]
     # sort strata from top to bottom
-    sorted_strata = sorted(strata_list, key=functools.cmp_to_key(compare), reverse=True)
+    sorted_strata = sorted(strata_list, key=functools.cmp_to_key(compare)) # , reverse=True
     for idx, stratum in enumerate(sorted_strata):
         store_stratum(len(sorted_strata) - idx, stratum)
 
@@ -503,9 +504,7 @@ def process_fact_rules(added_facts: List[Rule], removed_facts: List[Rule]) -> Pr
 def repair(the_bug_fact: List[str], data_path: str, bug_id: str, dl_program_path: str) -> None:
 
     time_out = False
-
     data_dir = extract_facts_around_bug(bug_id, the_bug_fact, data_path)
-    # data_dir = '/home/liuyu/symlog/tmp/spurious_database/chart4'
     strata = partition_to_strata(dl_program_path)
 
     # get facts for all strata
@@ -535,9 +534,9 @@ def repair(the_bug_fact: List[str], data_path: str, bug_id: str, dl_program_path
 
             added_facts, removed_facts = process_fact_rules(added_fact_rules, removed_fact_rules)
 
-            if not utils.lists_intersect(added_facts, removed_facts):
+            if not utils.is_lists_intersect(added_facts, removed_facts):
 
-                if utils.lists_intersect(added_facts, forbidden_queries.get(common.POS_QUERY, [])) or utils.lists_intersect(removed_facts, forbidden_queries.get(common.POS_QUERY, [])):
+                if utils.is_lists_intersect(added_facts, forbidden_queries.get(common.POS_QUERY, [])) or utils.is_lists_intersect(removed_facts, forbidden_queries.get(common.POS_QUERY, [])):
                     continue
 
                 queries_for_next_stratum = {common.POS_QUERY: added_facts, common.NEG_QUERY: removed_facts}
@@ -549,27 +548,27 @@ def repair(the_bug_fact: List[str], data_path: str, bug_id: str, dl_program_path
 
         return False, {}, queries
 
-    stratum_no = len(strata) - 1
+    stratum_no = 0
     queries = {common.POS_QUERY: {}, common.NEG_QUERY: {'ReachableNullAtLine':[the_bug_fact]}}
     forbidden_queries = {common.POS_QUERY: {}, common.NEG_QUERY: {}}
-    queries_of_strata = [{} for _ in range(len(strata))]
+    queries_of_strata = []
 
     def to_patch(queries: Dict[str, Dict]) ->  Dict[str, Dict]:
         result = queries
         
         if queries.get(common.POS_QUERY, {}):
             pos_queries = queries.get(common.POS_QUERY, {})
-            stratum_1 = parse(utils.read_file(f'{common.TMP_DIR}/stratum_1.dl'))
+            stratum_2 = parse(utils.read_file(f'{common.TMP_DIR}/stratum_2.dl'))
 
             # merge symbolic and input facts
             facts = {k: pos_queries.get(k, []) + input_facts.get(k, []) for k in (input_facts.keys() | pos_queries.keys())}
-            fact_rules = transform_input_facts(facts, stratum_1.declarations)
-            stratum_1 = Program(stratum_1.declarations, stratum_1.inputs, stratum_1.outputs + list(queries_of_strata[0][common.POS_QUERY].keys()), stratum_1.rules + fact_rules)
+            fact_rules = transform_input_facts(facts, stratum_2.declarations)
+            stratum_2 = Program(stratum_2.declarations, stratum_2.inputs, stratum_2.outputs + list(queries_of_strata[-1][common.POS_QUERY].keys()), stratum_2.rules + fact_rules)
             
             # FIXME: hack for removing temp binary
             if os.path.exists(f'{common.TMP_DIR}/binary'):
                 os.remove(f'{common.TMP_DIR}/binary')
-            _, key_fact_rules = ddmin(is_target_in_outputs, stratum_1, queries_of_strata[0][common.POS_QUERY], strata[0], mode=common.OPTIMIZATION_MODE)
+            _, key_fact_rules = ddmin(is_target_in_outputs, stratum_2, queries_of_strata[-1][common.POS_QUERY], strata[-1], mode=common.OPTIMIZATION_MODE)
             key_facts = transform_fact_rules(key_fact_rules)
 
             result[common.POS_QUERY] = key_facts
@@ -583,12 +582,12 @@ def repair(the_bug_fact: List[str], data_path: str, bug_id: str, dl_program_path
         queries_of_strata.insert(stratum_no, queries)
 
         if fixed:
-            stratum_no -= 1
+            stratum_no += 1
             queries = queries_for_next_stratum
-            if stratum_no < 0:
+            if stratum_no > len(strata) - 1:
                 break
         else:
-            stratum_no += 1
+            stratum_no -= 1
             queries = queries_of_strata[stratum_no]
 
     # process queries
@@ -600,10 +599,13 @@ if __name__ == '__main__':
 
     dl_path = 'may-cfg.dl'
 
-    the_bug_fact = '<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>	92	4493	<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>/r#_4473	Virtual Method Invocation'.split('\t')
-    data_path = '/home/liuyu/info3600-bugchecker-benchmarks/digger/out/jfreechart-1.2.0-pre1/database'
-    bug_id = 'chart4'
-    
+    # the_bug_fact = '<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>	92	4493	<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>/r#_4473	Virtual Method Invocation'.split('\t')
+    # data_path = '/home/liuyu/info3600-bugchecker-benchmarks/digger/out/chart4/database'
+    # bug_id = 'chart4'
+
+    the_bug_fact = '<com.adobe.acs.commons.mcp.impl.processes.asset.UrlAssetImport: com.adobe.acs.commons.mcp.impl.processes.asset.FileOrRendition extractFile(java.util.Map)>	33	302	<com.adobe.acs.commons.mcp.impl.processes.asset.UrlAssetImport: com.adobe.acs.commons.mcp.impl.processes.asset.FileOrRendition extractFile(java.util.Map)>/assetData#_0	Virtual Method Invocation'.split('\t')
+    data_path = '/home/liuyu/info3600-bugchecker-benchmarks/digger/out/Adobe-Consulting-Services-acs-aem-commons-374231969/database'
+    bug_id = 'Adobe-Consulting-Services-acs-aem-commons-374231969'
 
     res = repair(the_bug_fact, data_path, bug_id, dl_path)
     

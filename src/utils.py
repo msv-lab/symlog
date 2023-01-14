@@ -68,7 +68,7 @@ def is_sublist(list1, list2) -> bool:
     return all(item in list2 for item in list1)
 
 
-def lists_intersect(list1, list2):
+def is_lists_intersect(list1, list2):
     '''Returns True if list1 and list2 have at least one element in common.'''
     return any(elem in list2 for elem in list1)
 

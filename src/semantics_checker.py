@@ -31,8 +31,7 @@ def JumpTarget_checker(pred: str, args_list: List[List[str]], database: PredTupl
 
     # FIXME: hack for getting related facts
     related_facts = database.get(pred.replace('_', ''), [])
-    remove_multiple_assignments(args_list, related_facts, 1, 0)    
-    args_list = remove_multiple_assignments(args_list)
+    args_list = remove_multiple_assignments(args_list, related_facts, 1, 0)
 
     return args_list
 
