@@ -705,7 +705,7 @@ def transform_fact_rules(fact_rules: List[Rule]) -> Dict[str, List[List[str]]]:
     return facts
 
 
-def create_sym_facts(locs_list: List[Tuple[str, List[int]]], declarations: Dict[str, List[str]], same_loc_list=None) -> Dict[str, List[List[str]]]:
+def create_sym_facts(locs_list: List[Tuple[str, List[int]]], declarations: Dict[str, List[str]], same_loc_lists=None) -> Dict[str, List[List[str]]]:
     '''Create symbolic facts for the given location list for original program'''
     sym_cnt = 0
     sym_facts = defaultdict(list)
@@ -722,7 +722,7 @@ def create_sym_facts(locs_list: List[Tuple[str, List[int]]], declarations: Dict[
         if t == common.SOUFFLE_SYMBOL:
             return f'{common.SYMBOLIC_SYMBOL_PLACEHOLDER}{pred_name}'
         elif t == common.SOUFFLE_NUMBER:
-            return f'{common.SYMBOLIC_NUMBER_PLACEHOLDER}{pred_name}'
+            return -1234567890 # TODO: use a placeholder for numbers
         else:
             raise ValueError('Unsupported type: {}'.format(type(t)))
 
@@ -735,12 +735,13 @@ def create_sym_facts(locs_list: List[Tuple[str, List[int]]], declarations: Dict[
     for locs in locs_list:
         sym_cnt = add_sym_fact(sym_cnt, locs)
 
-    if same_loc_list:
-        pred_name, idx = same_loc_list[0]
-        same_name = sym_facts[pred_name][0][idx] # FIXME: now only support select the first one
-        for loc in same_loc_list[1:]:
-            pred_name, idx = loc
-            sym_facts[pred_name][0][idx] = same_name  # FIXME: now only support select the first one
+    if same_loc_lists:
+        for same_loc_list in same_loc_lists:
+            pred_name, idx = same_loc_list[0]
+            same_name = sym_facts[pred_name][0][idx] # FIXME: now only support select the first one
+            for loc in same_loc_list[1:]:
+                pred_name, idx = loc
+                sym_facts[pred_name][0][idx] = same_name  # FIXME: now only support select the first one
 
     return sym_facts
 
@@ -783,15 +784,16 @@ if __name__ == '__main__':
     input_facts = load_relations(DATA_DIR) # merge two dictionaries
 
     transformations = [    
-        ('original', [], []),
+        # ('original', [], []),
         # ('small_transformed', ['OperatorAt', 'If_Var', 'If_Constant'], []),
-        ('small_transformed_new', [('OperatorAt', [0, 1]), ('If_Var', [0, 2]), ('If_Constant', [0, 2]), ('JumpTarget', [0, 1])], [('OperatorAt', 0), ('If_Var', 0), ('If_Constant', 0), ('JumpTarget', 1)]),
+        ('small_transformed_new', [('OperatorAt', [0, 1]), ('If_Var', [0, 2]), ('If_Constant', [0, 2]), ('JumpTarget', [0, 1])], [[('OperatorAt', 0), ('If_Var', 0), ('If_Constant', 0), ('JumpTarget', 1)]]),
         # ('large_transformed', ['OperatorAt', 'If_Var', 'If_Constant', 'JumpTarget', 'Instruction_Method', 'Dominates', 'Instruction_Index', 'BasicBlockHead', 'NextInSameBasicBlock'])
+        # ('transformed_new', [('OperatorAt', [0, 1]), ('If_Var', [0, 2]), ('If_Constant', [0, 2]), ('JumpTarget', [0, 1]), ('ReturnVoid', [0]), ('Return', [0, 3])], [[('OperatorAt', 0), ('If_Var', 0), ('If_Constant', 0), ('JumpTarget', 1)], [('ReturnVoid', 0), ('Return', 0)]])
     ]
 
     for transformation in transformations:
-        name, pred_locs_list, same_loc_list = transformation
+        name, pred_locs_list, same_loc_lists = transformation
         # program_file = os.path.join(TEST_DIR, f'{name}_program.dl')
-        sym_facts = create_sym_facts(pred_locs_list, program.declarations, same_loc_list)
+        sym_facts = create_sym_facts(pred_locs_list, program.declarations, same_loc_lists)
         facts = {k: sym_facts.get(k, []) + input_facts.get(k, []) for k in (input_facts.keys() | sym_facts.keys())}
         transform_program(copy.deepcopy(program), facts)

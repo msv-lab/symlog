@@ -167,38 +167,50 @@ def create_precedence_graph(dl_program_path: str, store_graph=True) -> nx.DiGrap
 def partition_to_strata(dl_program_path: str) -> List[Dict[str, List[str]]]:
     precedence_graph = create_precedence_graph(dl_program_path)
 
-    def create_leq_graph(precedence_graph: nx.DiGraph):
+    def get_stratum_nodes(precedence_graph: nx.DiGraph) -> List[List[str]]:
+        precedence_graph = precedence_graph.copy()
+
         # Get constants from the common module
         intrinsic_preds = common.SOUFFLE_INTRINSIC_PREDS
         default_attr_name = common.DEFAULT_GRAPH_ATTR_NAME
         pos_lit_label = common.POS_LIT_LABEL
-
-        # Extract the <= relations from the precedence graph
-        leq_relations = [(n1, n2) for n1, n2, data in precedence_graph.edges(data=True)
+        
+        neg_nodes = [n1 for n1, n2, data in precedence_graph.edges(data=True)
                         if n1 not in intrinsic_preds and n2 not in intrinsic_preds
-                        and data[default_attr_name] == pos_lit_label]
+                        and data[default_attr_name] != pos_lit_label and precedence_graph.in_degree(n1)]
+        
+        top = sorted(precedence_graph.out_degree(), key=lambda x: x[1])[0][0] #FIXME: assume there is only one top node
+        nodes = neg_nodes + [top]
+        strata_list =[]
+        strata_dict = defaultdict(set)
 
-        # Extract the < relations from the precedence graph
-        le_relations = [(n1, n2) for n1, n2, data in precedence_graph.edges(data=True)
-                        if n1 not in intrinsic_preds and n2 not in intrinsic_preds
-                        and data[default_attr_name] != pos_lit_label]
+        for n in nodes:
+            init_nodes_of_n = nx.ancestors(precedence_graph, n) | {n}
+            nodes_copy = copy.deepcopy(nodes)
+            nodes_copy.remove(n)
 
-        leq_graph = nx.Graph(leq_relations)
+            for n2 in nodes_copy:
+                nodes_of_n2 = nx.ancestors(precedence_graph, n2) | {n2}
+                if nodes_of_n2.issubset(init_nodes_of_n):
+                    init_nodes_of_n = init_nodes_of_n.difference(nodes_of_n2)
+                    init_nodes_of_n = init_nodes_of_n.difference(intrinsic_preds)
 
-        def remove_edge_if_exists(graph: nx.Graph, node1: str, node2: str) -> None:
-            if graph.has_edge(node1, node2):
-                graph.remove_edge(node1, node2)
+            strata_dict[n] = init_nodes_of_n
 
-        for n1, n2 in le_relations:
-            n2_cc = nx.node_connected_component(leq_graph, n2)
-            for n in set(precedence_graph.successors(n1)) & n2_cc:
-                remove_edge_if_exists(leq_graph, n1, n)
+        def cmp(a, b):
+            if any([a in precedence_graph.predecessors(x) for x in strata_dict[b]]):
+                return -1
+            elif any([b in precedence_graph.predecessors(x) for x in strata_dict[a]]):
+                return 1
+            else:
+                return 0
 
-        return leq_graph
+        keys = sorted(strata_dict.keys(), key=functools.cmp_to_key(cmp))
+        strata_list = [strata_dict[key] for key in keys]
+        return strata_list
 
-    def get_stratum_info(precedence_graph: nx.DiGraph, cc: Generator[Set, None, None]) -> Dict[str, Set[str]]:
-        schs = set(cc)
-        schs = schs | set(itertools.chain.from_iterable(precedence_graph.predecessors(node) for node in cc)) - common.SOUFFLE_INTRINSIC_PREDS # filter out intrinsic preds
+    def get_stratum_info(precedence_graph: nx.DiGraph, nodes) -> Dict[str, Set[str]]:
+        schs = set(nodes)
         edbs = set(n for n in schs if not precedence_graph.in_degree(n) or not (set(precedence_graph.predecessors(n)) & schs - {n})) - common.SOUFFLE_INTRINSIC_PREDS # n's predecessors are all not in stratum's schs
 
         # extract negative edbs which are negated at least in one rule.
@@ -246,11 +258,8 @@ def partition_to_strata(dl_program_path: str) -> List[Dict[str, List[str]]]:
         utils.write_file(program_text, os.path.join(os.getcwd(), 'tmp', f'stratum_{idx}.dl'))
         print(f'Stratum {idx} is stored at {os.path.join(os.getcwd(), "tmp", f"stratum_{idx}.dl")}')
 
-    # Create leq graph (<= relations)
-    leq_graph = create_leq_graph(precedence_graph)
-    # Get strata info from the leq graph
-    strata_list = [get_stratum_info(precedence_graph, cc) for cc in nx.connected_components(leq_graph)]
-    # sort strata from top to bottom
+    strata_list = [get_stratum_info(precedence_graph, nodes) for nodes in get_stratum_nodes(precedence_graph)]
+
     sorted_strata = sorted(strata_list, key=functools.cmp_to_key(compare)) # , reverse=True
     for idx, stratum in enumerate(sorted_strata):
         store_stratum(len(sorted_strata) - idx, stratum)
@@ -324,7 +333,7 @@ def ddmin(test: Callable, p: Program, target_tuples: PredTuplesDict, edbs: List[
     return True, reset_fact_rules(inp, n)
 
 
-def select_sym_locs(p: Program, preds: Set[str], forbidden_loc_list: List[Tuple[str, int]], rank: Callable, top_n: int=5) -> List[str]:
+def select_sym_locs(p: Program, preds: Set[str], forbidden_loc_list: List[Tuple[str, int]], rank: Callable, top_n: int=100) -> List[str]:
     locs = [(pred, i) for pred in preds for i in range(len(p.declarations[pred])) if (pred, i) not in forbidden_loc_list]
     locs, same_loc_list = rank(locs, p)
     return locs[:top_n], same_loc_list
@@ -348,7 +357,9 @@ def map_queries(results: PredTuplesDict, queries: PredTuplesDict) -> PredTuplesD
 
 def rank_locations(edb_loc_list: List[Tuple[str, int]], p: Program):
     # TODO: implement it
-    return [('OperatorAt', [0, 1]), ('If_Var', [0, 2]), ('If_Constant', [0, 2]), ('JumpTarget', [0, 1])], [('OperatorAt', 0), ('If_Var', 0), ('If_Constant', 0), ('JumpTarget', 1)] # ('JumpTarget', [1])
+    # return [('OperatorAt', [0, 1]), ('If_Var', [0, 2]), ('If_Constant', [0, 2]), ('JumpTarget', [0, 1])], [('OperatorAt', 0), ('If_Var', 0), ('If_Constant', 0), ('JumpTarget', 1)] # ('JumpTarget', [1])
+    return [('OperatorAt', [0, 1]), ('If_Var', [0, 2]), ('If_Constant', [0, 2]), ('JumpTarget', [0, 1]), ('ReturnVoid', [0]), ('Return', [0, 3]), ('BasicBlockHead', [0, 1]), ('Instruction_Next', [0, 1])], [[('OperatorAt', 0), ('If_Var', 0), ('If_Constant', 0), ('JumpTarget', 1), ('Instruction_Next', 0)], [('ReturnVoid', 0), ('Return', 0), ('BasicBlockHead', 0)], [('BasicBlockHead', 1), ('JumpTarget', 0)]]
+
 
 
 def rank_fact_rules_for_neg_queries(fact_rules: List[Rule]) -> List[Rule]:
@@ -406,15 +417,17 @@ def handle_pos_queries(stratum_p: Program, stratum: Dict[str, Set[str]], forbidd
         return True, [], []
     
     # select locs in edbs of stratum for symbolization        
-    locs_list, same_loc_list = select_sym_locs(stratum_p, stratum[common.DL_EDBS], forbidden_loc_list, rank_locations)
+    locs_list, same_loc_lists = select_sym_locs(stratum_p, stratum[common.DL_EDBS], forbidden_loc_list, rank_locations)
     # create symbolic facts from the selected locations
-    sym_facts = create_sym_facts(locs_list, stratum_p.declarations, same_loc_list)
+    sym_facts = create_sym_facts(locs_list, stratum_p.declarations, same_loc_lists)
     # merge symbolic and input facts
     facts = {k: sym_facts.get(k, []) + input_facts.get(k, []) for k in (input_facts.keys() | sym_facts.keys())}
     # add outputs to stratum_p
     p = Program(stratum_p.declarations, stratum_p.inputs, stratum_p.outputs + list(pos_queries.keys()), stratum_p.rules)
     # transform the stratum program with the merged facts
     transformed_stratum_p = transform_program(p, facts)
+    # debug
+    utils.write_file(pprint(transformed_stratum_p), f'{common.TMP_DIR}/transformed_stratum_p.dl')
     # run the transformed program
     output = run_program(transformed_stratum_p, {}, common.SOUFFLE_COMPILE_MODE)
     # map positive queries to the output of the transformed program
@@ -504,7 +517,8 @@ def process_fact_rules(added_facts: List[Rule], removed_facts: List[Rule]) -> Pr
 def repair(the_bug_fact: List[str], data_path: str, bug_id: str, dl_program_path: str) -> None:
 
     time_out = False
-    data_dir = extract_facts_around_bug(bug_id, the_bug_fact, data_path)
+    # data_dir = extract_facts_around_bug(bug_id, the_bug_fact, data_path)
+    data_dir = '/home/liuyu/symlog/tmp/spurious_database/chart-4'
     strata = partition_to_strata(dl_program_path)
 
     # get facts for all strata
@@ -599,13 +613,18 @@ if __name__ == '__main__':
 
     dl_path = 'may-cfg.dl'
 
-    # the_bug_fact = '<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>	92	4493	<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>/r#_4473	Virtual Method Invocation'.split('\t')
-    # data_path = '/home/liuyu/info3600-bugchecker-benchmarks/digger/out/chart4/database'
-    # bug_id = 'chart4'
+    the_bug_fact = '<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>	92	4493	<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>/r#_4473	Virtual Method Invocation'.split('\t')
+    data_path = '/home/liuyu/info3600-bugchecker-benchmarks/digger/out/chart-4/database'
+    bug_id = 'chart-4'
 
-    the_bug_fact = '<com.adobe.acs.commons.mcp.impl.processes.asset.UrlAssetImport: com.adobe.acs.commons.mcp.impl.processes.asset.FileOrRendition extractFile(java.util.Map)>	33	302	<com.adobe.acs.commons.mcp.impl.processes.asset.UrlAssetImport: com.adobe.acs.commons.mcp.impl.processes.asset.FileOrRendition extractFile(java.util.Map)>/assetData#_0	Virtual Method Invocation'.split('\t')
-    data_path = '/home/liuyu/info3600-bugchecker-benchmarks/digger/out/Adobe-Consulting-Services-acs-aem-commons-374231969/database'
-    bug_id = 'Adobe-Consulting-Services-acs-aem-commons-374231969'
+    # the_bug_fact = '<com.adobe.acs.commons.mcp.impl.processes.asset.UrlAssetImport: com.adobe.acs.commons.mcp.impl.processes.asset.FileOrRendition extractFile(java.util.Map)>	33	302	<com.adobe.acs.commons.mcp.impl.processes.asset.UrlAssetImport: com.adobe.acs.commons.mcp.impl.processes.asset.FileOrRendition extractFile(java.util.Map)>/assetData#_0	Virtual Method Invocation'.split('\t')
+    # data_path = '/home/liuyu/info3600-bugchecker-benchmarks/digger/out/Adobe-Consulting-Services-acs-aem-commons-374231969/database'
+    # bug_id = 'Adobe-Consulting-Services-acs-aem-commons-374231969'
+
+
+    # the_bug_fact = '<com.adobe.acs.commons.mcp.impl.processes.asset.UrlAssetImport: com.adobe.acs.commons.mcp.impl.processes.asset.FileOrRendition extractFile(java.util.Map)>	37	303	<com.adobe.acs.commons.mcp.impl.processes.asset.UrlAssetImport: com.adobe.acs.commons.mcp.impl.processes.asset.FileOrRendition extractFile(java.util.Map)>/assetData#_0	Virtual Method Invocation'.split('\t')
+    # data_path = '/home/liuyu/info3600-bugchecker-benchmarks/digger/out/Adobe-Consulting-Services-acs-aem-commons-374231978/database'
+    # bug_id = 'Adobe-Consulting-Services-acs-aem-commons-374231978'
 
     res = repair(the_bug_fact, data_path, bug_id, dl_path)
     
