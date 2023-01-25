@@ -190,19 +190,51 @@ InstructionLine(meth, index, line).
 .decl PhiAssignToMaybeNull(insn: symbol, var: symbol, method: symbol)
 
 
+.decl isReferenceType(t: symbol)
+.input isReferenceType
+.decl ClassType(class: symbol)
+.input ClassType
+.decl ArrayType(arrayType: symbol)
+.input ArrayType
+.decl ReturnVoid(retInsn: symbol, index: number, method: symbol)
+.input ReturnVoid
+.decl Return(instruction: symbol, index: number, var: symbol, method: symbol)
+.input Return
+
+.decl ReturnInBasicBlock( headInsn: symbol)
+.decl DefaultReturn(retInsn: symbol, defaultVal: symbol)
+.decl DefaultValOfType(type: symbol, defaultVal: symbol)
+.decl NewClass(classType: symbol)
+.decl NewArray(arrayType: symbol)
+
+DefaultReturn(retInsn, "void"):- ReturnVoid(retInsn, _, _).
+DefaultReturn(retInsn, defaultVal):- Return(retInsn, _, _, method), Method(method, _, _, declaringType, _, _, _), DefaultValOfType(declaringType, defaultVal).
+
+DefaultValOfType(type, "null"):- isReferenceType(type).
+DefaultValOfType(type, "new"):- NewClass(type).
+DefaultValOfType(type, "new"):- NewArray(type).
+NewArray(type):- ArrayType(type).
+NewClass(type):- ClassType(type).
+
+ReturnInBasicBlock( headInsn):-
+  DefaultReturn(retInsn, defaultVal),
+  BasicBlockHead(retInsn, headInsn).
+
+BasicBlockNonNullBegin(next_insn, var, method) :-
+   OperatorAt(insn, "=="),
+   If_Var(insn, _, var),
+   If_Constant(insn, _, "null"),
+   JumpTarget(target_insn, insn),
+   ReturnInBasicBlock(target_insn), 
+   Instruction_Next(insn, next_insn),
+   Instruction_Method(next_insn, method).  
+
 BasicBlockNonNullBegin(target_insn, var, method) :-
    OperatorAt(insn, "!="), 
    If_Var(insn, _, var), 
    If_Constant(insn, _, "null"),
    JumpTarget(target_insn, insn),
    Instruction_Method(target_insn, method).
-
-BasicBlockNonNullBegin(next_insn, var, method) :-
-   OperatorAt(insn, "=="),
-   If_Var(insn, _, var),
-   If_Constant(insn, _, "null"),
-   Instruction_Next(insn, next_insn),
-   Instruction_Method(next_insn, method). 
 
 MustNonNullBeginAt(index, beginInsn, var, method) :-
    BasicBlockNonNullBegin(dominator, var, method),

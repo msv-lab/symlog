@@ -87,7 +87,7 @@ def if_combo_checker(facts: PredTuplesDict, database: PredTuplesDict=None) -> Pr
     return facts
 
 
-def semantics_filter(facts: PredTuplesDict, database: PredTuplesDict, pred_checkers: List[Callable], facts_checker: Callable=None):
+def facts_filter(facts: PredTuplesDict, database: PredTuplesDict, pred_checkers: List[Callable], facts_checker: Callable=None):
     '''filter out queries that are not semantically correct'''
     result = {}
     for pred, args_list in facts.items():
@@ -96,3 +96,20 @@ def semantics_filter(facts: PredTuplesDict, database: PredTuplesDict, pred_check
     if facts_checker:
         result = facts_checker(result)
     return result
+
+
+def domain_filter(symvals_locs_map, loc_values_map):
+    
+    symvals_vals_map = dict()
+
+    for symvals, locs in symvals_locs_map.items():
+        all_vals = set.union(*[loc_values_map[loc] for loc in locs])
+        for loc in locs:
+            pred = loc[0]
+            if 'Return' in pred:
+                all_vals = set(filter(lambda val: 'return' in str(val) or common.SYMBOLIC_CONSTANT_PREFIX in str(val), all_vals))
+            if 'If_' in pred:
+                all_vals = set(filter(lambda val: 'if' in str(val) or common.SYMBOLIC_CONSTANT_PREFIX in str(val), all_vals))
+            symvals_vals_map[symvals] = all_vals
+
+    return symvals_vals_map

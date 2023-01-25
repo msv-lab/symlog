@@ -164,4 +164,3 @@ cython_debug/
 tests/
 tmp/
 *.png
-*s1.dl

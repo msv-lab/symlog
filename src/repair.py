@@ -2,7 +2,7 @@ import re
 import os
 import shutil
 import networkx as nx
-from typing import List, Callable, Dict, Generator, Set, Any, List, Tuple
+from typing import List, Callable, Dict, Set, List, Tuple
 import functools
 import itertools
 import argparse
@@ -14,7 +14,7 @@ import common
 import utils
 from souffle import Literal, Program, Rule, parse, pprint, run_program, load_relations
 from transform_to_meta_program import transform_for_recording_facts, transform_input_facts, reset_for_recording_facts, transform_program, create_sym_facts, transform_fact_rules, reset_fact_rules
-from semantics_checker import semantics_filter, If_checker, JumpTarget_checker, if_combo_checker
+from semantics_checker import facts_filter, If_checker, JumpTarget_checker, if_combo_checker
 
 PASS = 0
 FAIL = 1
@@ -23,8 +23,8 @@ PredTuplesDict = common.PredTuplesDict
 
 
 parser = argparse.ArgumentParser(description='Transform Datalog program to meta program.')
-parser.add_argument('-p', '--program_path', required=True, help='path to the Datalog program')
-parser.add_argument('-d', '--data_path', required=True, help='path to the input facts')
+parser.add_argument('-p', '--analyzer_path', required=True, help='path to the Datalog program')
+parser.add_argument('-d', '--data_path', required=True, help='path to the directory of input facts')
 
 
 def extract_facts_around_bug(bug_id: str, the_bug_fact: List[str], data_path: str) -> str:
@@ -42,8 +42,8 @@ def extract_facts_around_bug(bug_id: str, the_bug_fact: List[str], data_path: st
     # Create the directory
     os.makedirs(SPU_EDB_PATH)
 
-    TARGET_FILENAME_LIST = ['VarPointsTo.csv']
-    # TARGET_FILENAME_LIST = []
+    # TARGET_FILENAME_LIST = ['VarPointsTo.csv']
+    TARGET_FILENAME_LIST = []
 
     def line_in_target_function(line: str, ext: str) -> bool|None:
         if ext == '.facts':
@@ -93,13 +93,6 @@ def add_neg_prefix(name: str) -> str:
 
 
 def gen_facts_by_stratum(ori_program_path: str, strata: List[Dict[str, List[str]]], data_dir: str) -> str:
-    '''Generate fatcs for each stratum.
-    Args:
-        p: The original Datalog program (cleaned for transformation)
-        strata: The strata of the program
-    Returns:
-        The path to the directory containing the extracted facts'''
-    
     if not os.path.exists(data_dir):
         raise ValueError(f'The directory {data_dir} storing original facts does not exist.')
 
@@ -156,7 +149,7 @@ def create_precedence_graph(dl_program_path: str, store_graph=True) -> nx.DiGrap
         for body_literal in rule.body:
             if not isinstance(body_literal, Literal):
                 continue
-            precedence_graph.add_edge(body_literal.name, rule.head.name, label=common.POS_LIT_LABEL if body_literal.positive else common.NEG_LIT_LABEL) #FIXME: `label` is based on common.DEFAULT_GRAPH_ATTR_NAME
+            precedence_graph.add_edge(body_literal.name, rule.head.name, label=common.POS_LIT_LABEL if body_literal.positive else common.NEG_LIT_LABEL) # NOTE: `label` is based on common.DEFAULT_GRAPH_ATTR_NAME
 
     if store_graph:
         utils.store_graph(precedence_graph, os.path.join(os.getcwd(), 'tmp','precedence_graph.png'))
@@ -297,6 +290,7 @@ def ddmin(test: Callable, p: Program, target_tuples: PredTuplesDict, edbs: List[
     n = 2     # Initial granularity
     old_n = 2 # Previous granularity
 
+    # NOTE: the arguments for recording facts are not used
     rec_p, inp = transform_for_recording_facts(p, n, edbs)
 
     if test(inp, rec_p, target_tuples, n, mode) == PASS:
@@ -305,11 +299,9 @@ def ddmin(test: Callable, p: Program, target_tuples: PredTuplesDict, edbs: List[
     while len(inp) >= 2:
         block_no = 0
 
-        # reset program and inputs
+        # reset program and inputs # NOTE: actually, the added arguments are not used
         reset_p = reset_for_recording_facts(rec_p, inp, old_n)
-
         rec_p, inp = transform_for_recording_facts(reset_p, n, edbs)
-
         some_complement_is_failing = False
 
         while block_no < n:
@@ -333,7 +325,7 @@ def ddmin(test: Callable, p: Program, target_tuples: PredTuplesDict, edbs: List[
     return True, reset_fact_rules(inp, n)
 
 
-def select_sym_locs(p: Program, preds: Set[str], forbidden_loc_list: List[Tuple[str, int]], rank: Callable, top_n: int=100) -> List[str]:
+def select_sym_locs(p: Program, preds: Set[str], forbidden_loc_list: List[Tuple[str, int]], rank: Callable, top_n: int=20) -> List[str]:
     locs = [(pred, i) for pred in preds for i in range(len(p.declarations[pred])) if (pred, i) not in forbidden_loc_list]
     locs, same_loc_list = rank(locs, p)
     return locs[:top_n], same_loc_list
@@ -356,10 +348,21 @@ def map_queries(results: PredTuplesDict, queries: PredTuplesDict) -> PredTuplesD
 
 
 def rank_locations(edb_loc_list: List[Tuple[str, int]], p: Program):
-    # TODO: implement it
-    # return [('OperatorAt', [0, 1]), ('If_Var', [0, 2]), ('If_Constant', [0, 2]), ('JumpTarget', [0, 1])], [('OperatorAt', 0), ('If_Var', 0), ('If_Constant', 0), ('JumpTarget', 1)] # ('JumpTarget', [1])
-    return [('OperatorAt', [0, 1]), ('If_Var', [0, 2]), ('If_Constant', [0, 2]), ('JumpTarget', [0, 1]), ('ReturnVoid', [0]), ('Return', [0, 3]), ('BasicBlockHead', [0, 1]), ('Instruction_Next', [0, 1])], [[('OperatorAt', 0), ('If_Var', 0), ('If_Constant', 0), ('JumpTarget', 1), ('Instruction_Next', 0)], [('ReturnVoid', 0), ('Return', 0), ('BasicBlockHead', 0)], [('BasicBlockHead', 1), ('JumpTarget', 0)]]
+    # TODO: 1. select corresponding configurations based on bug type. 2. return the configurations of the bug type from simple to complex
 
+    # config1: "if (var != null) { ... }"
+    # return [('OperatorAt', [0, 1]), ('If_Var', [0, 2]), ('If_Constant', [0, 2]), ('JumpTarget', [0, 1])], [[('OperatorAt', 0), ('If_Var', 0), ('If_Constant', 0), ('JumpTarget', 1)]]
+
+    # config2: "if (var == null) return null; ..." # NOTE: This config will reuse an existing if instruction. Need to write a post-process function to rectify the if instruction. Because the if instruction will be reused, the facts_filter function will filter out if-related facts.
+    return [('OperatorAt', [0, 1]), ('If_Var', [0, 2]), ('If_Constant', [0, 2]), ('JumpTarget', [0, 1]), ('ReturnVoid', [0]), ('Return', [0, 3]), ('BasicBlockHead', [0, 1])], [[('OperatorAt', 0), ('If_Var', 0), ('If_Constant', 0), ('JumpTarget', 1)], [('ReturnVoid', 0), ('Return', 0), ('BasicBlockHead', 0)], [('BasicBlockHead', 1), ('JumpTarget', 0)]]
+
+    # config3: "if (var == null) return null; ..." This config will not reuse any existing if instruction. Tuple explosion will happen.
+    # return [('OperatorAt', [0, 1]), ('If_Var', [0, 2]), ('If_Constant', [0,
+    # 2]), ('JumpTarget', [0, 1]), ('ReturnVoid', [0]), ('Return', [0, 3]),
+    # ('BasicBlockHead', [0, 1]), ('Instruction_Next', [0, 1])],
+    # [[('OperatorAt', 0), ('If_Var', 0), ('If_Constant', 0), ('JumpTarget', 1),
+    # ('Instruction_Next', 0)], [('ReturnVoid', 0), ('Return', 0),
+    # ('BasicBlockHead', 0)], [('BasicBlockHead', 1), ('JumpTarget', 0)]]
 
 
 def rank_fact_rules_for_neg_queries(fact_rules: List[Rule]) -> List[Rule]:
@@ -426,8 +429,6 @@ def handle_pos_queries(stratum_p: Program, stratum: Dict[str, Set[str]], forbidd
     p = Program(stratum_p.declarations, stratum_p.inputs, stratum_p.outputs + list(pos_queries.keys()), stratum_p.rules)
     # transform the stratum program with the merged facts
     transformed_stratum_p = transform_program(p, facts)
-    # debug
-    utils.write_file(pprint(transformed_stratum_p), f'{common.TMP_DIR}/transformed_stratum_p.dl')
     # run the transformed program
     output = run_program(transformed_stratum_p, {}, common.SOUFFLE_COMPILE_MODE)
     # map positive queries to the output of the transformed program
@@ -484,7 +485,7 @@ def handle_pos_queries(stratum_p: Program, stratum: Dict[str, Set[str]], forbidd
         
         sym_mapping_list = create_symbol_mappings(symbols, symbol_list)
         mapped_facts = sym_mappings_to_facts(sym_mapping_list)
-        mapped_facts = semantics_filter(mapped_facts, input_facts, [If_checker, JumpTarget_checker], if_combo_checker)
+        mapped_facts = facts_filter(mapped_facts, input_facts, [If_checker, JumpTarget_checker], if_combo_checker)
 
         return transform_input_facts(mapped_facts, stratum_p.declarations)
 
@@ -516,9 +517,8 @@ def process_fact_rules(added_facts: List[Rule], removed_facts: List[Rule]) -> Pr
 
 def repair(the_bug_fact: List[str], data_path: str, bug_id: str, dl_program_path: str) -> None:
 
-    time_out = False
-    # data_dir = extract_facts_around_bug(bug_id, the_bug_fact, data_path)
-    data_dir = '/home/liuyu/symlog/tmp/spurious_database/chart-4'
+    time_out = False # TODO: add timeout?
+    data_dir = extract_facts_around_bug(bug_id, the_bug_fact, data_path)
     strata = partition_to_strata(dl_program_path)
 
     # get facts for all strata
@@ -529,7 +529,7 @@ def repair(the_bug_fact: List[str], data_path: str, bug_id: str, dl_program_path
 
         pos_queries = queries.get(common.POS_QUERY, None)
         neg_queries = queries.get(common.NEG_QUERY, None)
-        forb_loc_list = []
+        forbd_loc_list = []
 
         if pos_queries is None and neg_queries is None:
             print(f'No queries for stratum {idx}.')
@@ -539,9 +539,9 @@ def repair(the_bug_fact: List[str], data_path: str, bug_id: str, dl_program_path
         stratum_p = parse(utils.read_file(os.path.join(common.TMP_DIR, f'stratum_{idx+1}.dl')))
 
         while not time_out:
-            is_fixed, added_fact_rules, forb_loc_list2 = handle_pos_queries(stratum_p, stratum, forb_loc_list, pos_queries, input_facts)
+            is_fixed, added_fact_rules, forbd_loc_list2 = handle_pos_queries(stratum_p, stratum, forbd_loc_list, pos_queries, input_facts)
             if not is_fixed:
-                forb_loc_list = forb_loc_list + forb_loc_list2 
+                forbd_loc_list = forbd_loc_list + forbd_loc_list2 
                 continue
 
             removed_fact_rules = handle_neg_queries(stratum_p, stratum, neg_queries, rank_fact_rules_for_neg_queries, input_facts)
@@ -558,36 +558,14 @@ def repair(the_bug_fact: List[str], data_path: str, bug_id: str, dl_program_path
                 return True, queries_for_next_stratum, {}
 
             else:
-                forb_loc_list = forb_loc_list + forb_loc_list2
+                forbd_loc_list = forbd_loc_list + forbd_loc_list2
 
         return False, {}, queries
 
     stratum_no = 0
-    queries = {common.POS_QUERY: {}, common.NEG_QUERY: {'ReachableNullAtLine':[the_bug_fact]}}
+    queries = {common.POS_QUERY: {}, common.NEG_QUERY: {'ReachableNullAtLine':[the_bug_fact]}} # FIXME: do not hardcode the bug fact predicate
     forbidden_queries = {common.POS_QUERY: {}, common.NEG_QUERY: {}}
     queries_of_strata = []
-
-    def to_patch(queries: Dict[str, Dict]) ->  Dict[str, Dict]:
-        result = queries
-        
-        if queries.get(common.POS_QUERY, {}):
-            pos_queries = queries.get(common.POS_QUERY, {})
-            stratum_2 = parse(utils.read_file(f'{common.TMP_DIR}/stratum_2.dl'))
-
-            # merge symbolic and input facts
-            facts = {k: pos_queries.get(k, []) + input_facts.get(k, []) for k in (input_facts.keys() | pos_queries.keys())}
-            fact_rules = transform_input_facts(facts, stratum_2.declarations)
-            stratum_2 = Program(stratum_2.declarations, stratum_2.inputs, stratum_2.outputs + list(queries_of_strata[-1][common.POS_QUERY].keys()), stratum_2.rules + fact_rules)
-            
-            # FIXME: hack for removing temp binary
-            if os.path.exists(f'{common.TMP_DIR}/binary'):
-                os.remove(f'{common.TMP_DIR}/binary')
-            _, key_fact_rules = ddmin(is_target_in_outputs, stratum_2, queries_of_strata[-1][common.POS_QUERY], strata[-1], mode=common.OPTIMIZATION_MODE)
-            key_facts = transform_fact_rules(key_fact_rules)
-
-            result[common.POS_QUERY] = key_facts
-
-        return result
 
     # repair by stratum
     while not time_out:
@@ -604,31 +582,25 @@ def repair(the_bug_fact: List[str], data_path: str, bug_id: str, dl_program_path
             stratum_no -= 1
             queries = queries_of_strata[stratum_no]
 
-    # process queries
-    result = to_patch(queries)
-    return result
+    # TODO: convert the queries to source code?
+    return queries
 
 
 if __name__ == '__main__':
+    args = parser.parse_args()
+    dl_analyzer_path = args.analyzer_path
+    data_dir = args.data_path
 
-    dl_path = 'may-cfg.dl'
+    with open('data/info.csv', 'r') as f:
+        for line in f:
+            bug_id, the_bug_fact = line.split(',')
+            the_bug_fact = the_bug_fact.split('\t')
+            data_path = os.path.join(data_dir, bug_id, 'database')
 
-    the_bug_fact = '<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>	92	4493	<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>/r#_4473	Virtual Method Invocation'.split('\t')
-    data_path = '/home/liuyu/info3600-bugchecker-benchmarks/digger/out/chart-4/database'
-    bug_id = 'chart-4'
-
-    # the_bug_fact = '<com.adobe.acs.commons.mcp.impl.processes.asset.UrlAssetImport: com.adobe.acs.commons.mcp.impl.processes.asset.FileOrRendition extractFile(java.util.Map)>	33	302	<com.adobe.acs.commons.mcp.impl.processes.asset.UrlAssetImport: com.adobe.acs.commons.mcp.impl.processes.asset.FileOrRendition extractFile(java.util.Map)>/assetData#_0	Virtual Method Invocation'.split('\t')
-    # data_path = '/home/liuyu/info3600-bugchecker-benchmarks/digger/out/Adobe-Consulting-Services-acs-aem-commons-374231969/database'
-    # bug_id = 'Adobe-Consulting-Services-acs-aem-commons-374231969'
-
-
-    # the_bug_fact = '<com.adobe.acs.commons.mcp.impl.processes.asset.UrlAssetImport: com.adobe.acs.commons.mcp.impl.processes.asset.FileOrRendition extractFile(java.util.Map)>	37	303	<com.adobe.acs.commons.mcp.impl.processes.asset.UrlAssetImport: com.adobe.acs.commons.mcp.impl.processes.asset.FileOrRendition extractFile(java.util.Map)>/assetData#_0	Virtual Method Invocation'.split('\t')
-    # data_path = '/home/liuyu/info3600-bugchecker-benchmarks/digger/out/Adobe-Consulting-Services-acs-aem-commons-374231978/database'
-    # bug_id = 'Adobe-Consulting-Services-acs-aem-commons-374231978'
-
-    res = repair(the_bug_fact, data_path, bug_id, dl_path)
-    
-    for i, v in res[common.POS_QUERY].items():
-        print(f'{i}: {v}')
-    for i, v in res[common.NEG_QUERY].items():
-        print(f'{i}: {v}')
+            res = repair(the_bug_fact, data_path, bug_id, dl_analyzer_path)
+            print('To be added facts:')
+            for i, v in res[common.POS_QUERY].items():
+                print(f'{i}: {v}')
+            print('To be removed facts:')
+            for i, v in res[common.NEG_QUERY].items():
+                print(f'{i}: {v}')

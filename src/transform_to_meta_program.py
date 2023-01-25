@@ -1,6 +1,7 @@
 import common
 from souffle import collect, transform, parse, pprint, Variable, Literal, Rule, String, Number, Program, Unification, load_relations
 import utils
+from semantics_checker import domain_filter
 
 from typing import Any, List, Dict, Set, Tuple, Optional, DefaultDict, Union
 import itertools
@@ -79,7 +80,7 @@ def transform_for_recording_facts(
             for i in range(1, 1 + num)
         ]
 
-        # store record args in columns (instead of rows). TODO: The program for finding all paths should not contain negative literals. keep this for now.
+        # store record args in columns (instead of rows). TODO: The program should not contain negative literals. keep this for now. (this function is not used for now)
         body_record_argnames_list = [
             [
                 f"{literal.name}{common.BODY_RECORD_ARG_PREFIX}{i}"
@@ -264,6 +265,8 @@ def analyse_symbolic_constants(
 
         # sym const -> set of consts that sym const attempt to unify with
         unifiable_consts_map = dict()
+        # # sym const -> set of locs where sym const appears
+        # symvals_locs_map = defaultdict(set)
 
         for loc, symvalues in eloc_symvalues_map.items():
             # union of set of in principle to-be-joined constants and constants
@@ -272,8 +275,12 @@ def analyse_symbolic_constants(
                 itertools.chain(
                     *[loc_values_map[sloc] for sloc in symloc_unifiable_locs_map[loc]]
                 )
-            ) | loc_values_map[loc]
+            )  | loc_values_map[loc]
 
+        #     symvals_locs_map[tuple(symvalues)].add(loc)
+
+        # for symvalues, values in domain_filter(symvals_locs_map, loc_values_map).items():
+        #     unifiable_consts_map[symvalues] |= values
         return unifiable_consts_map
 
     (
@@ -722,7 +729,7 @@ def create_sym_facts(locs_list: List[Tuple[str, List[int]]], declarations: Dict[
         if t == common.SOUFFLE_SYMBOL:
             return f'{common.SYMBOLIC_SYMBOL_PLACEHOLDER}{pred_name}'
         elif t == common.SOUFFLE_NUMBER:
-            return -1234567890 # TODO: use a placeholder for numbers
+            return -1234567890 # TODO: placeholder for numbers
         else:
             raise ValueError('Unsupported type: {}'.format(type(t)))
 
@@ -767,7 +774,7 @@ def transform_program(program: Program, input_facts: Dict[str, List[List[str]]],
     if is_store:
         with open(output_file, 'w') as f:
             f.write(pprint(transformed))
-        print('Program written to {}'.format(output_file))
+        print('Transformed program is written to {}'.format(output_file))
     
     return transformed
 

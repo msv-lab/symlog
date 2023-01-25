@@ -1,0 +1,9 @@
+bugID, patch, can be fixed?, description
+Bears-56, https://bears-bugs.github.io/bears-benchmark/#!/bug/INRIA-spoon/Bears-56 , Yes,  
+Bears-17, https://github.com/FasterXML/jackson-databind/commit/974ccddfd718a06f889da2dcd58ebb6bc22c8dca#diff-cddcf012840f12dd754c6a9ccaba5531d031ad7ce0781652bd6b20cd56256007R79, Yes?, 1. Fix position is not exact the same as the fix position of patch  2.  Have to restrict the num of symbolic consts
+Bears-249 , https://github.com/vitorenesduarte/VCD-java-client/commit/bba1c44e155e913e7108fa4c218915edd906e65a , Yes? , 1. Fix position is not exact the same as the fix position of patch  2.  Have to restrict the num of symbolic consts
+chart-4, http://program-repair.org/defects4j-dissection/#!/bug/Chart/4, Yes,  
+fastjson_7c05c6f, https://github.com/alibaba/fastjson/commit/7c05c6f, No, difficult to generate exact the same patch
+karaf_5965290, https://github.com/apache/karaf/commit/5965290, No, difficult to generate the 'visitor.text("h");'
+Adobe-Consulting-Services-acs-aem-commons-374231969, https://github.com/Adobe-Consulting-Services/acs-aem-commons/compare/106ccbb5c250277d582ecf296fa67cf0cca21060..a613fbc36f439eeaae9e3f0a387265191b318fb1, Maybe, The analyzer needs to be modified to support the generation of ternary expressions
+Adobe-Consulting-Services-acs-aem-commons-374231978, https://github.com/Adobe-Consulting-Services/acs-aem-commons/compare/468b22ee657650dea6724540514f92d80043a54c..931373481432c238706551f7727a8122cc251100, Maybe, The analyzer needs to be modified to support the generation of ternary expressions
