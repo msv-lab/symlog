@@ -1,6 +1,8 @@
 import core.common as common
 from typing import List
 import itertools
+from dataclasses import dataclass
+
 
 def type_check(type):
     if type not in [common.SOUFFLE_SYMBOL, common.SOUFFLE_NUMBER]:
@@ -11,29 +13,12 @@ def sign_check(sign):
         raise TypeError('Invalid sign: %s' % sign)
 
 
+@dataclass
 class Constant:
-    """Represents a constant value in Souffle program.
-
-    Args:
-        value (Union[str, int, float]): The value of the constant.
-        type (str): The type of the constant.
-
-    Raises:
-        TypeError: If the type of the constant is not valid.
-
-    Attributes:
-        value (Union[str, int, float]): The value of the constant.
-        type (str): The type of the constant.
-    """
-
-    def __init__(self, value: str|int|float, type: str) -> None:
-        self.value = value
-        self.type = type        
-        try:
-            type_check(self.type)
-        except TypeError as e:
-            print(e)
-
+    """Represents a constant value in Souffle program."""
+    value: Union[str, int, float]
+    type: str
+            
 
 class SymConstant:
     """Represents a symbolic constant in Souffle program.
