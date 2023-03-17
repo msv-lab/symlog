@@ -1,0 +1,30 @@
+.decl assign(v0:symbol, v1:symbol)
+.decl new(v0:symbol, v1:symbol, v2:symbol, v3:symbol)
+.decl ld(v0:symbol, v1:symbol, v2:symbol)
+.decl st(v0:symbol, v1:symbol, v2:symbol)
+.decl alias(v0:symbol, v1:symbol, v2:symbol, v3:symbol)
+.decl pointsTo(v0:symbol, v1:symbol, v2:symbol, v3:symbol)
+.decl symlog_domain_symlog_symbolic_0(v0:symbol)
+.decl symlog_domain_symlog_symbolic_1(v0:symbol)
+.output pointsTo
+assign("v1", "v2").
+new("v1", "h1", symlog_binding_symlog_symbolic_0, symlog_binding_symlog_symbolic_1) :- symlog_domain_symlog_symbolic_0(symlog_binding_symlog_symbolic_0), symlog_domain_symlog_symbolic_1(symlog_binding_symlog_symbolic_1).
+new("v2", "h2", symlog_binding_symlog_symbolic_0, symlog_binding_symlog_symbolic_1) :- symlog_domain_symlog_symbolic_0(symlog_binding_symlog_symbolic_0), symlog_domain_symlog_symbolic_1(symlog_binding_symlog_symbolic_1).
+new("v3", "h3", symlog_binding_symlog_symbolic_0, symlog_binding_symlog_symbolic_1) :- symlog_domain_symlog_symbolic_0(symlog_binding_symlog_symbolic_0), symlog_domain_symlog_symbolic_1(symlog_binding_symlog_symbolic_1).
+st("v1", "f", "v3").
+ld("v4", "v1", "f").
+alias(X, X, symlog_binding_symlog_symbolic_0, symlog_binding_symlog_symbolic_1) :- assign(X, _), symlog_domain_symlog_symbolic_0(symlog_binding_symlog_symbolic_0), symlog_domain_symlog_symbolic_1(symlog_binding_symlog_symbolic_1).
+alias(X, X, symlog_binding_symlog_symbolic_0, symlog_binding_symlog_symbolic_1) :- assign(_, X), symlog_domain_symlog_symbolic_0(symlog_binding_symlog_symbolic_0), symlog_domain_symlog_symbolic_1(symlog_binding_symlog_symbolic_1).
+alias(X, Y, symlog_binding_symlog_symbolic_0, symlog_binding_symlog_symbolic_1) :- assign(X, Y), symlog_domain_symlog_symbolic_0(symlog_binding_symlog_symbolic_0), symlog_domain_symlog_symbolic_1(symlog_binding_symlog_symbolic_1).
+alias(X, Y, symlog_binding_symlog_symbolic_0, symlog_binding_symlog_symbolic_1) :- ld(X, A, F), alias(A, B, symlog_binding_symlog_symbolic_0, symlog_binding_symlog_symbolic_1), st(B, F, Y), symlog_domain_symlog_symbolic_0(symlog_binding_symlog_symbolic_0), symlog_domain_symlog_symbolic_1(symlog_binding_symlog_symbolic_1).
+pointsTo(X, Y, symlog_binding_symlog_symbolic_0, symlog_binding_symlog_symbolic_1) :- new(X, Y, symlog_binding_symlog_symbolic_0, symlog_binding_symlog_symbolic_1), symlog_domain_symlog_symbolic_0(symlog_binding_symlog_symbolic_0), symlog_domain_symlog_symbolic_1(symlog_binding_symlog_symbolic_1).
+pointsTo(X, Y, symlog_binding_symlog_symbolic_0, symlog_binding_symlog_symbolic_1) :- alias(X, Z, symlog_binding_symlog_symbolic_0, symlog_binding_symlog_symbolic_1), pointsTo(Z, Y, symlog_binding_symlog_symbolic_0, symlog_binding_symlog_symbolic_1), symlog_domain_symlog_symbolic_0(symlog_binding_symlog_symbolic_0), symlog_domain_symlog_symbolic_1(symlog_binding_symlog_symbolic_1).
+new(symlog_binding_symlog_symbolic_0, symlog_binding_symlog_symbolic_1, symlog_binding_symlog_symbolic_0, symlog_binding_symlog_symbolic_1) :- symlog_domain_symlog_symbolic_0(symlog_binding_symlog_symbolic_0), symlog_domain_symlog_symbolic_1(symlog_binding_symlog_symbolic_1).
+symlog_domain_symlog_symbolic_0("v1").
+symlog_domain_symlog_symbolic_0("v3").
+symlog_domain_symlog_symbolic_0("symlog_symbolic_0").
+symlog_domain_symlog_symbolic_0("v2").
+symlog_domain_symlog_symbolic_1("h2").
+symlog_domain_symlog_symbolic_1("h3").
+symlog_domain_symlog_symbolic_1("symlog_symbolic_1").
+symlog_domain_symlog_symbolic_1("h1").

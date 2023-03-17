@@ -1,0 +1,4 @@
+<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>/new java.lang.Integer/1	java.lang.Integer
+<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>/new java.util.ArrayList/1	java.util.ArrayList
+<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>/new java.lang.Integer/0	java.lang.Integer
+<org.jfree.chart.plot.XYPlot: org.jfree.data.Range getDataRange(org.jfree.chart.axis.ValueAxis)>/new java.util.ArrayList/0	java.util.ArrayList

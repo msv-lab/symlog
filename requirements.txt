@@ -2,3 +2,4 @@ lark
 pytest
 networkx
 matplotlib
+deepdiff

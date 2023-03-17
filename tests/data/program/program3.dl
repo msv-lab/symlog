@@ -1,0 +1,24 @@
+.decl assign( a:symbol, b:symbol )
+.decl new( v:symbol, o:symbol )
+.decl ld( a:symbol, b:symbol, f:symbol )
+.decl st( a:symbol, f:symbol, b:symbol )
+
+
+assign("v1","v2").
+new("v1","h1").
+new("v2","h2").
+new("v3","h3").
+st("v1","f","v3").
+ld("v4","v1","f").
+
+
+.decl alias( a:symbol, b:symbol )
+alias(X,X) :- assign(X,_).
+alias(X,X) :- assign(_,X).
+alias(X,Y) :- assign(X,Y).
+alias(X,Y) :- ld(X,A,F), alias(A,B), st(B,F,Y).
+
+.decl pointsTo(a:symbol, o:symbol )
+.output pointsTo
+pointsTo(X,Y) :- new(X,Y).
+pointsTo(X,Y) :- alias(X,Z), pointsTo(Z,Y).
