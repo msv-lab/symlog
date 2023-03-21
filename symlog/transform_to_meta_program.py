@@ -1,6 +1,6 @@
-import core.common as common
-from core.souffle import collect, transform, pprint, Variable, Literal, Rule, String, Number, Program
-import core.utils as utils
+import symlog.common as common
+from symlog.souffle import collect, transform, pprint, Variable, Literal, Rule, String, Number, Program
+import symlog.utils as utils
 from typing import Any, List, Dict, Set, Tuple, Optional, DefaultDict, Union
 import itertools
 from collections import defaultdict

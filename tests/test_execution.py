@@ -1,50 +1,52 @@
-from core.souffle import run_program, parse
-from core.utils import read_file
+from symlog.souffle import run_program, parse
+from symlog.utils import read_file
+from symlog.helper import format_output
 import pickle
 from deepdiff import DeepDiff
 
 
 def test_run0():
-    program = parse(read_file('tests/data/program/program1.dl'))
+    program = parse(read_file('tests/data/programs/program1.dl'))
     relations = run_program(program, dict())
-
-    expected_relations = {'correct_usage': [['1']]}
-    diff = DeepDiff(relations, expected_relations)
+    formatted_output = format_output(program, relations)
+    expected_output = {"correct_usage(('1',))": ""}
     
+    diff = DeepDiff(formatted_output, expected_output)
     assert not diff, f"Expected no difference, but found: {diff}"
 
 
 def test_run1():
-    program = parse(read_file('tests/data/program/program1_trans.dl'))
+    program = parse(read_file('tests/data/programs/program1_trans.dl'))
     relations = run_program(program, dict())
+    formatted_output = format_output(program, relations)
 
-    expected_relations = {'correct_usage': [['1', '-9223372036854775806'], ['1', '1'], ['1', '4'], ['1', '5']]}    
-    diff = DeepDiff(relations, expected_relations)
+    with open("tests/data/programs/program1_trans_output.pickle", "rb") as f:
+        expected_output = pickle.load(f)
 
+    diff = DeepDiff(formatted_output, expected_output)
     assert not diff, f"Expected no difference, but found: {diff}"
 
 
 def test_run2():
-    program = parse(read_file('tests/data/program/program2_trans.dl'))
+    program = parse(read_file('tests/data/programs/program2_trans.dl'))
     relations = run_program(program, dict())
+    formatted_output = format_output(program, relations)
 
-    with open('tests/data/program/program2_trans_output.pickle', 'rb') as f:
-        expected_relations = pickle.load(f)
-    diff = DeepDiff(relations, expected_relations)
-    
+    with open('tests/data/programs/program2_trans_output.pickle', 'rb') as f:
+        expected_output = pickle.load(f)
+
+    diff = DeepDiff(formatted_output, expected_output)
     assert not diff, f"Expected no difference, but found: {diff}"
 
 
 def test_run3():
-    program = parse(read_file('tests/data/program/program3_trans.dl'))
+    program = parse(read_file('tests/data/programs/program3_trans.dl'))
     relations = run_program(program, dict())
+    formatted_output = format_output(program, relations)
 
-    with open('tests/data/program/program3_trans_output.pickle', 'rb') as f:
-        expected_relations = pickle.load(f)
-    diff = DeepDiff(relations, expected_relations)
+    with open('tests/data/programs/program3_trans_output.pickle', 'rb') as f:
+        expected_output = pickle.load(f)
 
+    diff = DeepDiff(formatted_output, expected_output)
     assert not diff, f"Expected no difference, but found: {diff}"
 
-
-if '__main__' == __name__:
-    test_run1()

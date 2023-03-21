@@ -1,7 +1,5 @@
-import core.common as common
-from core.souffle import String, Number, Variable
-from core.ast import Constant
-from core.ast import Literal as astLiteral
+import symlog.common as common
+from symlog.souffle import String, Number, Variable
 import itertools
 from typing import List, Dict, Set, Any
 import os
@@ -71,24 +69,14 @@ def write_file(content: str, file_path: str):
         f.write(content)
 
 
-def convert_relations(facts_dict: dict) -> list:
-    # Convert a dictionary of facts to a list of facts
-    relations = list()
-    for relation_name in facts_dict:
-        for args in facts_dict[relation_name]:
-            constants = [Constant(arg, common.SOUFFLE_SYMBOL) for arg in args]
-            relations.append(astLiteral(relation_name, True, constants=constants))
-    return relations
+def to_souffle_term(value, type):
+    if type == common.SOUFFLE_SYMBOL:
+        return String(value)
+    elif type == common.SOUFFLE_NUMBER:
+        return Number(value)
+    else:
+        raise TypeError(f"Invalid type: {type}")
 
 
-def inv_convert_relations(facts: list|dict) -> dict:
-    # Convert a list of facts to a dictionary of facts
-    if isinstance(facts, dict):
-        return facts
-    facts_dict = dict()
-    for fact in facts:
-        if fact.name not in facts_dict:
-            facts_dict[fact.name] = list()
-        args = [constant.value for constant in fact.constants]
-        facts_dict[fact.name].append(args)
-    return facts_dict
+def sort_z3_expressions(exprs: List[Any]) -> List[Any]:
+    return sorted(exprs, key=lambda x: str(x))
