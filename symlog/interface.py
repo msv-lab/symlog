@@ -4,7 +4,7 @@ from symlog.utils import read_file
 import symlog.souffle as souffle
 from symlog.transform_to_meta_program import transform_program
 
-from typing import List, Optional
+from typing import List, Optional, Union
 import itertools
 from dataclasses import dataclass
 
@@ -26,7 +26,7 @@ def convert_relations(facts_dict: dict) -> list:
             relations.append(Literal(relation_name, True, constants=constants))
     return relations
 
-def inv_convert_relations(facts: list|dict) -> dict:
+def inv_convert_relations(facts: Union[list, dict]) -> dict:
     # Convert a list of facts to a dictionary of facts
     if isinstance(facts, dict):
         return facts
@@ -41,14 +41,14 @@ def inv_convert_relations(facts: list|dict) -> dict:
 
 @dataclass
 class Constant:
-    value: str|int|float
+    value: Union[str, int, float]
     type: str
 
 
 @dataclass
 class SymConstant:
     type: str
-    value: Optional[str|int|float] = None
+    value: Optional[Union[str, int, float]] = None
 
     id_iter = itertools.count()
 
@@ -70,7 +70,7 @@ class SymConstant:
 class Literal:
     name: str
     sign: bool
-    constants: List[Constant|SymConstant]
+    constants: List[Union[Constant, SymConstant]]
 
     def __post_init__(self):
         try:
