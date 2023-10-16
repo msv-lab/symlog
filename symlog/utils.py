@@ -5,10 +5,6 @@ from symlog.souffle import (
     Variable,
     SymbolicNumber,
     SymbolicString,
-    BaseType,
-    EquivelenceType,
-    Rule,
-    Literal,
 )
 
 import itertools
@@ -23,18 +19,9 @@ def flatten_dict(d: Dict[Any, Set[Any] | List[Any]]) -> Dict[Any, Any]:
     return {k: remove_duplicates(list(itertools.chain(*v))) for k, v in d.items()}
 
 
-def read_file(file_path):
-    if os.path.exists(file_path):
-        with open(file_path, "r") as f:
-            content = f.read()
-        return content
-    else:
-        raise ValueError(f"{file_path} does not exist.")
-
-
 def is_arg_symbolic_or_wildcard(arg) -> bool:
     # Returns True if the argument is a symbolic constant/number/binding variable or a wildcard '_'
-    if is_symbolic_constant(arg):
+    if isinstance(arg, (SymbolicString, SymbolicNumber)):
         return True
     elif isinstance(arg, Variable):
         return arg.name.startswith(common.BINDING_VARIABLE_PREFIX)
@@ -60,10 +47,6 @@ def is_arg_symbolic(arg) -> bool:
         return False
 
 
-def is_symbolic_constant(arg) -> bool:
-    return isinstance(arg, (SymbolicString, SymbolicNumber))
-
-
 def is_number(s):
     try:
         float(s)
@@ -83,27 +66,6 @@ def remove_duplicates(lst):
     return unique_list
 
 
-def sort_z3_expressions(exprs: List[Any]) -> List[Any]:
-    return sorted(exprs, key=lambda x: str(x))
-
-
-delimiter = "\t"
-
-
-def base_type(type_, type_decls):
-    if type_ in type_decls:
-        if isinstance(type_decls[type_], BaseType):
-            return type_decls[type_].type_name
-        elif isinstance(type_decls[type_], EquivelenceType):
-            return base_type(type_decls[type_].type_names[0], type_decls)
-        else:
-            raise NotImplementedError
-    elif type_ in [common.SOUFFLE_SYMBOL, common.SOUFFLE_NUMBER]:
-        return type_
-    else:
-        raise TypeError("Invalid type: %s" % type_)
-
-
 def check_equality(lst1, lst2, ignore_order=False):
     diff = DeepDiff(lst1, lst2, ignore_order=ignore_order)
     return diff == {}
@@ -117,7 +79,7 @@ def flatten_lists_only(lst):
             yield item  # Yield other items
 
 
-def divide_set_by_subset(all_facts, sub_facts):
+def divide_list_by_subslit(all_facts, sub_facts):
     """
     Splits all_facts into two lists based on sub_facts: a list of facts found in sub_facts (up to the occurrence
     count in all_facts) and a list of facts not found in sub_facts.
@@ -132,7 +94,7 @@ def divide_set_by_subset(all_facts, sub_facts):
 
     Args:
         all_facts (list): The main list of facts.
-        sub_facts (list): A subset of facts.
+        sub_facts (list): A sublist of facts.
 
     Returns:
         tuple: A tuple containing two lists - non_sub_facts and sub_facts.

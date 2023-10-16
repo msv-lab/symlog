@@ -11,7 +11,7 @@ from symlog.utils import is_sublist
 def ddmin(
     test_function: Callable,
     input: list,
-    raise_on_error=False,
+    raise_on_error,
 ) -> list:
     """
     Delta debugging algorithm.
@@ -23,10 +23,13 @@ def ddmin(
 
     if test_function(input) == DOES_NOT_CONTAIN:
         if raise_on_error:
-            raise ValueError(f"The {input} cannot produce the target tuples.")
+            raise ValueError(f"The full {input} cannot pass the test function.")
         else:
-            # print(f"The {input} cannot produce the target tuples.")
             return None
+
+    # the input is not needed to produce the target tuples
+    if test_function([]) == CONTAINS:
+        return []
 
     n = 2  # Initial granularity
 
@@ -54,7 +57,9 @@ def ddmin(
     return input
 
 
-def ddmin_all_monotonic(test_function: Callable, input_list: list) -> list:
+def ddmin_all_monotonic(
+    test_function: Callable, input_list: list, raise_on_error=False
+) -> list:
     """
     Find all minimized input facts that can produce the target
     outputs when monotonicity is guaranteed.
@@ -78,7 +83,7 @@ def ddmin_all_monotonic(test_function: Callable, input_list: list) -> list:
         minimized_input = previous_computed_result(current_input)
         # if not, compute the minimal input
         if not minimized_input:
-            minimized_input = ddmin(test_function, current_input, raise_on_error=False)
+            minimized_input = ddmin(test_function, current_input, raise_on_error)
 
         if not minimized_input:
             return results

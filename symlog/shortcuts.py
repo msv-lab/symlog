@@ -1,68 +1,47 @@
-import symlog.environment
-from symlog.souffle import SYM, user_load_facts
-
-
-def get_env():
-    """Returns the global environment.
-
-    :returns: The global environment
-    :rtype: Environment
-    """
-    return symlog.environment.get_env()
-
-
-def reset_env():
-    """Resets the global environment, and returns the new one.
-
-    :returns: A new environment after resetting the global environment
-    :rtype: Environment
-    """
-    return symlog.environment.reset_env()
+import symlog.souffle as souffle
+import symlog.program_builder as program_builder
+import symlog.symbolic_executor as symbolic_executor
+import symlog.repairer as repairer
 
 
 def Number(value):
     """Returns a number with the given value."""
-    return get_env().program_manager.Number(value)
+    return program_builder.Number(value)
 
 
 def String(value):
     """Returns a string with the given value."""
-    return get_env().program_manager.String(value)
+    return program_builder.String(value)
 
 
 def Variable(name):
     """Returns a variable with the given name."""
-    return get_env().program_manager.Variable(name)
+    return program_builder.Variable(name)
 
 
-def Literal(name, args):
+def Literal(name, args, sign=True):
     """Returns a literal with the given name and args."""
-    return get_env().program_manager.Literal(name, args)
+    return program_builder.Literal(name, args, sign)
 
 
 def Rule(head, body):
     """Returns a rule with the given head and body literals."""
-    return get_env().program_manager.Rule(head, body)
+    return program_builder.Rule(head, body)
 
 
-def InFact(name, args):
+def Fact(name, args):
     """Returns a input fact with the given name and args."""
-    return get_env().program_manager.Fact(name, args)
-
-
-def OutFact(name, args):
-    """Returns a output fact with the given name and args."""
-    return get_env().program_manager.OutputFact(name, args)
+    return program_builder.Fact(name, args, False)
 
 
 def SymbolicSign(fact):
     """Returns a fact with symbolic sign."""
-    return get_env().program_manager.SymbolicSign(fact)
+    return program_builder.SymbolicSign(fact)
 
 
-def SymbolicConstant(name=None, type=SYM):
-    """Returns a symbolic constant with the given name and type."""
-    return get_env().program_manager.SymbolicConstant(name, type)
+def SymbolicConstant(name=None, type=souffle.SYM):
+    """Returns a SymbolicConstant with the given name and type."""
+    return program_builder.SymbolicConstant(name, type)
 
 
 def parse(program_path):
@@ -81,7 +60,7 @@ def parse(program_path):
     except PermissionError:
         raise ValueError(f"Permission denied: {program_path}")
 
-    return get_env().parser.parse(program_str)
+    return souffle.parse(program_str)
 
 
 def load_facts(directory_path):
@@ -92,37 +71,33 @@ def load_facts(directory_path):
     :returns: The loaded facts
     :rtype: list of Fact
     """
-    return user_load_facts(directory_path)
+    return souffle.user_load_facts(directory_path)
 
 
-def substitue_fact_const(facts, const_dict):
-    """Substitues the constants in the given facts with the given constant dictionary.
+def substitute(source, subs_dict):
+    """Substitutes the given dictionary in the given source.
 
-    :param facts: The facts to be substitued
-    :type facts: list of Fact
-    :param const_dict: The constant dictionary to be substitued
-    :type const_dict: dict
-    :returns: The substitued facts
-    :rtype: list of Fact
+    :param source: The source to be substituted
+    :type source: Any
+    :param subs_dict: The dictionary to be substituted
+    :type subs_dict: dict
     """
-    return get_env().program_manager.substitue_fact_const(facts, const_dict)
+    return program_builder.substitute(source, subs_dict)
 
 
-def symex(rules, facts, interested_output_facts=set()):
+def symex(rules, facts, interested_output_facts):
     """Symbolically executes the given rules and facts.
 
     :param rules: The rules to be symbolically executed
-    :type rules: list of Rule
+    :type rules: fronzenset of Rule
     :param facts: The facts to be symbolically executed
-    :type facts: list of Fact
-    :param interested_output_facts: The output facts that we are interested in, defaults to set()
-    :type interested_output_facts: set, optional
+    :type facts: fronzenset of Fact
+    :param interested_output_facts: The output facts that you are interested in
+    :type interested_output_facts: fronzenset of Fact
     :returns: The constraints collected during symbolic execution
     :rtype: dict
     """
-    return get_env().symbolic_executor.symex(
-        rules, facts, interested_output_facts=interested_output_facts
-    )
+    return symbolic_executor.symex(rules, facts, interested_output_facts)
 
 
 def repair(rules, facts, wanted_out_facts, unwanted_out_facts):
@@ -137,6 +112,6 @@ def repair(rules, facts, wanted_out_facts, unwanted_out_facts):
     :param unwanted_out_facts: The output facts that we want to remove
     :type unwanted_out_facts: set of Fact
     :returns: The raw patches in the form of a model
-    :rtype: Program
+    :rtype: z3.ModelRef
     """
-    return get_env().repairer.repair(rules, facts, wanted_out_facts, unwanted_out_facts)
+    return repairer.repair(rules, facts, wanted_out_facts, unwanted_out_facts)

@@ -1,237 +1,178 @@
-from symlog.environment import Environment
-from symlog.utils import check_equality
-from symlog.symbolic_executor import OutputCondition, AtomicCondition
-from symlog.souffle import NUM, pprint, SYM
+from symlog.souffle import NUM, SYM
+from symlog.shortcuts import (
+    Rule,
+    Fact,
+    String,
+    Variable,
+    Literal,
+    SymbolicSign,
+    SymbolicConstant,
+    symex,
+)
+from z3 import And, Or, Not, Bool, Const, StringSort, IntSort, simplify, BoolVal
 
 
 def test_symex_with_sym_sign():
-    with Environment() as env:
-        manager = env.program_manager
-        executor = env.symbolic_executor
+    rule = Rule(
+        Literal("t", [Variable("X"), Variable("Z")], True),
+        [
+            Literal("r", [Variable("X"), Variable("Y")], True),
+            Literal("s", [Variable("Y"), Variable("Z")], True),
+        ],
+    )
 
-        Rule = manager.Rule
-        Literal = manager.Literal
-        Fact = manager.Fact
-        Variable = manager.Variable
-        String = manager.String
-        SymbolicSign = manager.SymbolicSign
-        OutputFact = manager.OutputFact
+    facts = [
+        SymbolicSign(Fact("r", [String("a"), String("b")])),
+        Fact("r", [String("b"), String("c")]),
+        Fact("s", [String("b"), String("c")]),
+        SymbolicSign(Fact("s", [String("c"), String("d")])),
+    ]
 
-        rule = Rule(
-            Literal("t", [Variable("X"), Variable("Z")], True),
-            [
-                Literal("r", [Variable("X"), Variable("Y")], True),
-                Literal("s", [Variable("Y"), Variable("Z")], True),
-            ],
+    interested_output_facts = set([Fact("t", [String("a"), String("c")])])
+
+    constraints = symex([rule], facts, interested_output_facts)
+    constraints = {k: v.to_z3() for k, v in constraints.items()}
+
+    answer = {Fact("t", [String("a"), String("c")]): simplify(Bool('r("a", "b").'))}
+
+    assert constraints == answer
+
+
+def test_symex_with_sym_const_sign():
+    rule = Rule(
+        Literal("t", [Variable("X"), Variable("Z")], True),
+        [
+            Literal("r", [Variable("X"), Variable("Y")], True),
+            Literal("s", [Variable("Y"), Variable("Z")], True),
+        ],
+    )
+
+    facts = [
+        Fact("r", [SymbolicConstant("alpha", type=SYM), String("b")]),
+        Fact("r", [String("b"), String("c")]),
+        Fact("s", [String("b"), String("c")]),
+        SymbolicSign(Fact("s", [String("c"), String("d")])),
+    ]
+
+    target_outputs = {Fact("t", [String("b"), String("d")])}
+
+    constraints = symex([rule], facts, target_outputs)
+
+    constraints = {k: v.to_z3() for k, v in constraints.items()}
+
+    answer = {
+        Fact("t", [String("b"), String("d")]): simplify(
+            Or(
+                And(Const("alpha", StringSort()) == "b", Bool('s("c", "d").')),
+                And(
+                    Const("alpha", StringSort()) == "symlog_symbolic_1",
+                    Bool('s("c", "d").'),
+                ),
+            )
         )
+    }
 
-        facts = [
-            SymbolicSign(Fact("r", [String("a"), String("b")])),
-            Fact("r", [String("b"), String("c")]),
-            Fact("s", [String("b"), String("c")]),
-            SymbolicSign(Fact("s", [String("c"), String("d")])),
-        ]
+    assert constraints == answer
 
-        constraints = executor.symex([rule], facts)
-        constraints = {k: v for k, v in sorted(constraints.items())}
 
-        answer = {
-            OutputFact("t", [String("b"), String("d")]): OutputCondition(
+def test_symex_with_multiple_sym_sign():
+    rule = Rule(
+        Literal("t", [Variable("X"), Variable("Z")], True),
+        [
+            Literal("r", [Variable("X"), Variable("Y")], True),
+            Literal("s", [Variable("Y"), Variable("Z")], True),
+        ],
+    )
+
+    facts = [
+        SymbolicSign(Fact("r", [SymbolicConstant("alpha", type=SYM), String("b")])),
+        Fact("r", [String("b"), String("c")]),
+        Fact("s", [String("b"), String("c")]),
+        SymbolicSign(Fact("s", [String("c"), String("d")])),
+    ]
+
+    target_outputs = {Fact("t", [String("a"), String("c")])}
+
+    constraints = symex([rule], facts, target_outputs)
+    constraints = {k: v.to_z3() for k, v in constraints.items()}
+    answer = {
+        Fact("t", [String("a"), String("c")]): simplify(
+            And(
                 [
-                    OutputCondition(
-                        [AtomicCondition([], [Fact("s", [String("c"), String("d")])])]
-                    )
+                    Const("alpha", StringSort()) == "a",
+                    Bool('r("a", "b").'),
                 ]
-            ),
-            OutputFact("t", [String("a"), String("c")]): OutputCondition(
-                [
-                    OutputCondition(
-                        [AtomicCondition([], [Fact("r", [String("a"), String("b")])])]
-                    )
-                ]
-            ),
-        }
-        answer = {k: v for k, v in sorted(answer.items())}
-
-        assert check_equality(constraints, answer, ignore_order=True)
-
-
-def test_symex_with_interested_output_facts():
-    with Environment() as env:
-        manager = env.program_manager
-        executor = env.symbolic_executor
-        Rule = manager.Rule
-        Literal = manager.Literal
-        Fact = manager.Fact
-        Variable = manager.Variable
-        String = manager.String
-        SymbolicSign = manager.SymbolicSign
-        OutputFact = manager.OutputFact
-
-        rule = Rule(
-            Literal("t", [Variable("X"), Variable("Z")], True),
-            [
-                Literal("r", [Variable("X"), Variable("Y")], True),
-                Literal("s", [Variable("Y"), Variable("Z")], True),
-            ],
+            )
         )
+    }
 
-        facts = [
-            SymbolicSign(Fact("r", [String("a"), String("b")])),
-            Fact("r", [String("b"), String("c")]),
-            Fact("s", [String("b"), String("c")]),
-            SymbolicSign(Fact("s", [String("c"), String("d")])),
-        ]
-
-        interested_output_facts = set([OutputFact("t", [String("a"), String("c")])])
-
-        constraints = executor.symex([rule], facts, interested_output_facts)
-
-        print(constraints)
-
-        answer = {
-            OutputFact("t", [String("a"), String("c")]): OutputCondition(
-                [
-                    OutputCondition(
-                        [AtomicCondition([], [Fact("r", [String("a"), String("b")])])]
-                    )
-                ]
-            ),
-        }
-
-        print(answer)
-
-        assert str(constraints) == str(answer)
-
-        # assert check_equality(constraints, answer, ignore_order=True)
-
-
-def test_symex_with_sym_const_and_sign():
-    with Environment() as env:
-        manager = env.program_manager
-        executor = env.symbolic_executor
-        Rule = manager.Rule
-        Literal = manager.Literal
-        Fact = manager.Fact
-        Variable = manager.Variable
-        String = manager.String
-        SymbolicSign = manager.SymbolicSign
-        OutputFact = manager.OutputFact
-        SymbolicConstant = manager.SymbolicConstant
-
-        rule = Rule(
-            Literal("t", [Variable("X"), Variable("Z")], True),
-            [
-                Literal("r", [Variable("X"), Variable("Y")], True),
-                Literal("s", [Variable("Y"), Variable("Z")], True),
-            ],
-        )
-
-        facts = [
-            Fact("r", [SymbolicConstant("alpha", type=SYM), String("b")]),
-            Fact("r", [String("b"), String("c")]),
-            Fact("s", [String("b"), String("c")]),
-            SymbolicSign(Fact("s", [String("c"), String("d")])),
-        ]
-
-        constraints = executor.symex([rule], facts)
-        print(constraints)
-
-        # answer = {
-        #     OutputFact("t", [String("b"), String("d")]): OutputCondition(
-        #         [OutputSubCondition([], [Fact("s", [String("c"), String("d")])])]
-        #     ),
-        #     OutputFact("t", [String("a"), String("c")]): OutputCondition(
-        #         [OutputSubCondition([], [Fact("r", [String("a"), String("b")])])]
-        #     ),
-        # }
-
-        # assert check_equality(constraints, answer, ignore_order=True)
-
-
-def test_symex_with_sym_const_sign_target_outputs():
-    with Environment() as env:
-        manager = env.program_manager
-        executor = env.symbolic_executor
-        Rule = manager.Rule
-        Literal = manager.Literal
-        Fact = manager.Fact
-        Variable = manager.Variable
-        String = manager.String
-        SymbolicSign = manager.SymbolicSign
-        OutputFact = manager.OutputFact
-        SymbolicConstant = manager.SymbolicConstant
-
-        rule = Rule(
-            Literal("t", [Variable("X"), Variable("Z")], True),
-            [
-                Literal("r", [Variable("X"), Variable("Y")], True),
-                Literal("s", [Variable("Y"), Variable("Z")], True),
-            ],
-        )
-
-        facts = [
-            Fact("r", [SymbolicConstant("alpha", type=SYM), String("b")]),
-            Fact("r", [String("b"), String("c")]),
-            Fact("s", [String("b"), String("c")]),
-            SymbolicSign(Fact("s", [String("c"), String("d")])),
-        ]
-
-        target_outputs = {OutputFact("t", [String("a"), String("c")])}
-
-        constraints = executor.symex([rule], facts, target_outputs)
-
-        print(constraints)
-        # answer_str = '{t("a", "c").: (and (= symlog_symbolic_1 "a") |s("c", "d").|)}'
-
-        # assert str(constraints) == answer_str
+    assert constraints == answer
 
 
 def test_symex_with_multiple_target_outputs():
-    with Environment() as env:
-        manager = env.program_manager
-        executor = env.symbolic_executor
-        Rule = manager.Rule
-        Literal = manager.Literal
-        Fact = manager.Fact
-        Variable = manager.Variable
-        String = manager.String
-        SymbolicSign = manager.SymbolicSign
-        OutputFact = manager.OutputFact
-        SymbolicConstant = manager.SymbolicConstant
+    rule = Rule(
+        Literal("t", [Variable("X"), Variable("Z")], True),
+        [
+            Literal("r", [Variable("X"), Variable("Y")], True),
+            Literal("s", [Variable("Y"), Variable("Z")], True),
+        ],
+    )
 
-        rule = Rule(
-            Literal("t", [Variable("X"), Variable("Z")], True),
-            [
-                Literal("r", [Variable("X"), Variable("Y")], True),
-                Literal("s", [Variable("Y"), Variable("Z")], True),
-            ],
-        )
+    facts = [
+        Fact("r", [SymbolicConstant("alpha", type=SYM), String("b")]),
+        Fact("r", [String("b"), String("c")]),
+        Fact("s", [String("b"), String("c")]),
+        SymbolicSign(Fact("s", [String("c"), String("d")])),
+    ]
 
-        facts = [
-            Fact("r", [SymbolicConstant("alpha", type=SYM), String("b")]),
-            Fact("r", [String("b"), String("c")]),
-            Fact("s", [String("b"), String("c")]),
-            SymbolicSign(Fact("s", [String("c"), String("d")])),
-        ]
+    target_outputs = {
+        Fact("t", [String("a"), String("c")]),
+        Fact("t", [String("e"), String("c")]),
+    }
 
-        target_outputs = {
-            OutputFact("t", [String("a"), String("c")]),
-            OutputFact("t", [String("e"), String("c")]),
-        }
+    constraints = symex([rule], facts, target_outputs)
 
-        constraints = executor.symex([rule], facts, target_outputs)
+    updated_constraints = {k: v.to_z3() for k, v in constraints.items()}
 
-        print(constraints)
+    answer = {
+        Fact("t", [String("a"), String("c")]): simplify(
+            Const("alpha", StringSort()) == "a"
+        ),
+        Fact("t", [String("e"), String("c")]): simplify(
+            Const("alpha", StringSort()) == "e"
+        ),
+    }
 
-        # answer_str = '{t("a", "c").: (and (= symlog_symbolic_1 "a") |s("c", "d").|)}'
-
-        # assert str(constraints) == answer_str
+    assert updated_constraints == answer
 
 
-if __name__ == "__main__":
-    test_symex_with_interested_output_facts()
-    test_symex_with_sym_sign()
-    test_symex_with_sym_const_and_sign()
-    # test_symex_with_sym_const_sign_target_outputs()
-    # test_symex_with_multiple_target_outputs()
+def test_symex_with_nothing():
+    rule = Rule(
+        Literal("t", [Variable("X"), Variable("Z")], True),
+        [
+            Literal("r", [Variable("X"), Variable("Y")], True),
+            Literal("s", [Variable("Y"), Variable("Z")], True),
+        ],
+    )
+
+    facts = [
+        Fact("r", [String("a"), String("b")]),
+        Fact("r", [String("b"), String("c")]),
+        Fact("s", [String("b"), String("c")]),
+        Fact("s", [String("c"), String("d")]),
+    ]
+
+    target_outputs = {
+        Fact("t", [String("a"), String("c")]),
+        Fact("t", [String("e"), String("c")]),
+    }
+
+    constraints = symex([rule], facts, target_outputs)
+
+    updated_constraints = {k: v.to_z3() for k, v in constraints.items()}
+
+    answer = {
+        Fact("t", [String("a"), String("c")]): BoolVal(True),
+    }
+
+    assert updated_constraints == answer

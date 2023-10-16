@@ -6,53 +6,19 @@ import csv
 from collections import namedtuple
 import os
 import hashlib
-from dotenv import load_dotenv
 from typing import List, Union, Callable, Optional
+from lark import Lark, Transformer, v_args, UnexpectedInput, LarkError, UnexpectedEOF
+import logging
 
 from symlog.common import (
     SYMBOLIC_CONSTANT_PREFIX,
     BINDING_VARIABLE_PREFIX,
     DOMAIN_PREDICATE_PREFIX,
+    SYMLOG_NUM_POOL,
 )
 
-load_dotenv()
-
-# relation_decls: name -> argument types
-# output: list of names
-# rules: list of rules
-Program = namedtuple(
-    "Program",
-    [
-        "type_decls",
-        "relation_decls",
-        "functor_decls",
-        "inputs",
-        "outputs",
-        "rules",
-        "facts",
-    ],
-)
-_Rule = namedtuple("Rule", ["head", "body"])
-_Literal = namedtuple("Literal", ["name", "args", "positive"])
-Unification = namedtuple("Unification", ["left", "right", "positive"])
-BinaryExpression = namedtuple("BinaryExpression", ["left", "right", "op"])
-Aggregator = namedtuple("Aggregator", ["op", "atom"])
-IntrisicFunctionCall = namedtuple("IntrisicFunctionCall", ["functor", "args"])
-UserDefFunctionCall = namedtuple("UserDefFunctionCall", ["functor", "args"])
-Variable = namedtuple("Variable", ["name"])
-String = namedtuple("String", ["value"])
-Number = namedtuple("Number", ["value"])
-SymbolicConstant = namedtuple("SymbolicConstant", ["value", "fixed"])
-Term = Union[Variable, String, Number]
-FunctorTypes = namedtuple("FunctorTypes", ["arg_types", "ret_type"])
-Record = namedtuple("Record", ["args"])
-BaseType = namedtuple("BaseType", ["type_name"])
-EquivelenceType = namedtuple("EquivelenceType", ["type_names"])
-RecordType = namedtuple("RecordType", ["attrs"])
-Comparision = namedtuple("Comparision", ["left", "right", "op"])
-SymbolicString = namedtuple("SymbolicString", ["name"])
-SymbolicNumber = namedtuple("SymbolicNumber", ["name"])
-Underscore = namedtuple("UnderScore", [])
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.ERROR)
 
 
 def namedtuple_with_methods(namedtuple_cls):
@@ -72,13 +38,159 @@ def namedtuple_with_methods(namedtuple_cls):
     return ExtendedNamedTuple
 
 
-Rule = namedtuple_with_methods(_Rule)
-Literal = namedtuple_with_methods(_Literal)
+# relation_decls: name -> argument types
+# output: list of names
+# rules: list of rules
+Program = namedtuple(
+    "Program",
+    [
+        "declarations",
+        "inputs",
+        "outputs",
+        "rules",
+        "facts",
+        "symbols",
+    ],
+)
+
+Variable = namedtuple("Variable", ["name"])
+String = namedtuple("String", ["value"])
+Number = namedtuple("Number", ["value"])
+SymbolicSign = namedtuple("SymbolicSign", ["fact"])
+Underscore = namedtuple("UnderScore", [])
+
+
+class SymbolicString(namedtuple("SymbolicString", ["name"])):
+    _next_free_id = 1
+
+    def __new__(cls):
+        name = f"{SYMBOLIC_CONSTANT_PREFIX}{cls._next_free_id}"
+        instance = super().__new__(cls, name)
+        cls._next_free_id += 1
+        return instance
+
+    def __deepcopy__(self, memo):
+        # ignore memo
+        return super().__new__(self.__class__, self.name)
+
+    def __repr__(self) -> str:
+        return f"SymbolicString({self.name})"
+
+    def __str__(self) -> str:
+        return f"SymbolicString({self.name})"
+
+
+class SymbolicNumber(namedtuple("SymbolicNumber", ["name"])):
+    _next_free_id = 1
+
+    def __new__(cls, name=None):
+        name = SYMLOG_NUM_POOL[cls._next_free_id]
+        instance = super().__new__(cls, name)
+        cls._next_free_id += 1
+        return instance
+
+    def __repr__(self) -> str:
+        return f"SymbolicNumber({self.name})"
+
+    def __str__(self) -> str:
+        return f"SymbolicNumber({self.name})"
+
+
+SymbolicStringWrapper = namedtuple("SymbolicStringWrapper", ["name", "payload"])
+SymbolicNumberWrapper = namedtuple("SymbolicNumberWrapper", ["name", "payload"])
+Rule = namedtuple_with_methods(namedtuple("Rule", ["head", "body"]))
+Literal = namedtuple_with_methods(namedtuple("Literal", ["name", "args", "positive"]))
+Fact = namedtuple_with_methods(namedtuple("Fact", ["head", "body", "symbolic_sign"]))
 
 
 # types
 SYM = "symbol"
 NUM = "number"
+
+
+souffle_grammar = """
+    start: (relation_decl | rule | fact | directive | output | input )*
+    directive: "#" NAME ESCAPED_STRING
+    relation_decl: ".decl" NAME "(" [typed_var ("," typed_var)*] ")"
+    output: ".output" NAME
+    input: ".input" NAME
+    typed_var: NAME ":" NAME
+    ?arg: NAME -> var
+        | value
+    ?value: string
+          | SIGNED_NUMBER -> number
+    string : ESCAPED_STRING
+    rule: literal ":-" body "."
+    ?literal: NAME "(" [arg ("," arg)*] ")" -> atom
+            | "!" NAME "(" [arg ("," arg)*] ")"  -> negated_atom
+    body: literal ("," literal)*
+    fact: literal "."
+    COMMENT: /\/\/.*/
+    %import common.CNAME -> NAME
+    %import common.ESCAPED_STRING
+    %import common.SIGNED_NUMBER
+    %import common.WS
+    %ignore WS
+    %ignore COMMENT
+"""
+
+
+@v_args(inline=True)
+class ASTConstructor(Transformer):
+    def NAME(self, v):
+        return str(v)
+
+    def __init__(self):
+        self.program = Program(
+            declarations={},
+            inputs=[],
+            outputs=[],
+            rules=[],
+            facts=[],
+            symbols=[],
+        )
+
+    def number(self, n):
+        return Number(int(n))
+
+    def string(self, s):
+        return String(s[1:-1])
+
+    def var(self, v):
+        return Variable(v)
+
+    def directive(self, d, v):
+        raise NotImplementedError("directives are not supported")
+
+    def relation_decl(self, name, *attrs):
+        self.program.declarations[name] = [x for _, x in attrs]
+
+    def output(self, name):
+        self.program.outputs.append(name)
+
+    def input(self, name):
+        self.program.inputs.append(name)
+
+    def typed_var(self, v, t):
+        return (v, t)
+
+    def atom(self, name, *args):
+        return Literal(name, args, True)
+
+    def negated_atom(self, name, *args):
+        return Literal(name, args, False)
+
+    def body(self, *args):
+        return args
+
+    def rule(self, head, body):
+        self.program.rules.append(Rule(head, body))
+
+    def fact(self, head):
+        self.program.facts.append(Fact(head, [], False))
+
+    def start(self, *_):
+        return self.program
 
 
 def pprint(node):
@@ -89,52 +201,37 @@ def pprint(node):
             return pprint_rule(node)
         if isinstance(node, Literal):
             return pprint_literal(node)
-        if isinstance(node, Unification):
-            return pprint_unification(node)
-        if isinstance(node, Comparision):
-            return pprint_comparision(node)
         if isinstance(node, Variable):
             return pprint_term(node)
         if isinstance(node, String):
             return pprint_term(node)
-        if isinstance(node, BinaryExpression):
-            return pprint_term(node)
-        if isinstance(node, Aggregator):
-            return pprint_term(node)
-        if isinstance(node, IntrisicFunctionCall):
-            return pprint_term(node)
-        if isinstance(node, UserDefFunctionCall):
-            return pprint_term(node)
-        if isinstance(node, Record):
-            return pprint_term(node)
         if isinstance(node, Number):
             return pprint_term(node)
+        if isinstance(node, SymbolicNumber):
+            return pprint_term(node)
+        if isinstance(node, SymbolicString):
+            return pprint_term(node)
+        if isinstance(node, Fact):
+            return pprint_fact(node)
         raise NotImplementedError(f"pprint for {type(node)} is not implemented")
 
     def pprint_term(term):
         if isinstance(term, Variable):
             return term.name
-        if isinstance(term, String):
+        elif isinstance(term, String):
             return '"' + term.value.replace('"', "") + '"'
-        if isinstance(term, BinaryExpression):
-            return f"{pprint_term(term.left)} {term.op} {pprint_term(term.right)}"
-        if isinstance(term, Aggregator):
-            return f"{term.op}" + ": {" + f"{pprint_literal(term.atom)}" + "}"
-        if isinstance(term, IntrisicFunctionCall):
-            args_result = ", ".join([pprint_term(t) for t in term.args])
-            return f"{term.functor}({args_result})"
-        if isinstance(term, UserDefFunctionCall):
-            args_result = ", ".join([pprint_term(t) for t in term.args])
-            return f"@{term.functor}({args_result})"
-        if isinstance(term, Record):
-            args_result = ", ".join([pprint_term(t) for t in term.args])
-            return f"[{args_result}]"
-        if isinstance(term, SymbolicString):
+        elif isinstance(term, SymbolicString):
             return '"' + term.name + '"'
-        if isinstance(term, SymbolicNumber):
+        elif isinstance(term, SymbolicNumber):
             return str(term.name)
-        else:
+        elif isinstance(term, Number):
             return str(term.value)
+        elif isinstance(term, SymbolicNumberWrapper):
+            return term.payload.name
+        elif isinstance(term, SymbolicStringWrapper):
+            return term.payload.name
+        else:
+            assert False, f"unknown term {term}. Bug?"
 
     def pprint_literal(l):
         literal_result = ""
@@ -144,58 +241,36 @@ def pprint(node):
         literal_result += f"{l.name}({args_result})"
         return literal_result
 
-    def pprint_unification(u):
-        op = "=" if u.positive else "!="
-        return f"{pprint_term(u.left)} {op} {pprint_term(u.right)}"
-
-    def pprint_comparision(c):
-        return f"{pprint_term(c.left)} {c.op} {pprint_term(c.right)}"
-
     def pprint_rule(rule):
         result = ""
-        if rule.head.name:
-            result += pprint_literal(rule.head)
+        result += pprint_literal(rule.head)
+
         if rule.body:
             result += " :- "
-        body_results = []
-        if rule.body:
-            for el in rule.body:
-                if isinstance(el, Unification):
-                    body_results.append(pprint_unification(el))
-                elif isinstance(el, Comparision):
-                    body_results.append(pprint_comparision(el))
-                elif isinstance(el, Literal):
-                    body_results.append(pprint_literal(el))
-                else:
-                    raise ValueError(f"unknown body element {el}")
-        result += ", ".join(body_results) + ".\n"
+            body_results = []
+            if rule.body:
+                for el in rule.body:
+                    if isinstance(el, Literal):
+                        body_results.append(pprint_literal(el))
+                    else:
+                        raise ValueError(f"unknown body element {el}")
+            result += ", ".join(body_results) + ".\n"
+        return result
+
+    def pprint_fact(fact):
+        assert not fact.body, "fact body is not empty. Bug?"
+        result = ""
+        result += pprint_literal(fact.head)
+        result += ".\n"
         return result
 
     def pprint_program(program):
         result = ""
 
-        for name, type_ in program.type_decls.items():
-            result += f".type {name}"
-            if isinstance(type_, BaseType):
-                result += f" <: {type_.type_name}\n"
-            elif isinstance(type_, EquivelenceType):
-                types = "|".join(type_.type_names)
-                result += f" = {types}\n"
-            elif isinstance(type_, RecordType):
-                attrs = ", ".join([f"{x}:{y}" for x, y in type_.attrs])
-                result += f" = [{attrs}]\n"
-            else:
-                raise ValueError(f"unknown type {type_}")
-
-        for name, types in program.relation_decls.items():
+        for name, types in program.declarations.items():
             result += f".decl {name}("
             types_results = [f"v{i}:{t}" for i, t in enumerate(types)]
             result += ", ".join(types_results) + ")\n"
-
-        for name, functor_types in program.functor_decls.items():
-            result += f".functor {name}("
-            types_results = [f"v{i}:{t}" for i, t in enumerate(functor_types.arg_types)]
-            result += ", ".join(types_results) + ") : " + functor_types.ret_type + "\n"
 
         for name in program.inputs:
             result += f".input {name}\n"
@@ -207,7 +282,7 @@ def pprint(node):
             result += pprint_rule(rule)
 
         for fact in program.facts:
-            result += pprint_rule(fact)
+            result += pprint_fact(fact)
 
         return result
 
@@ -220,33 +295,24 @@ def transform(node, f):
             isinstance(node, Variable)
             or isinstance(node, String)
             or isinstance(node, Number)
+            or isinstance(node, SymbolicNumber)
+            or isinstance(node, SymbolicString)
+            or isinstance(node, SymbolicNumberWrapper)
+            or isinstance(node, SymbolicStringWrapper)
         ):
             return transform_term(node, f)
-        if isinstance(node, Unification):
-            return transform_unification(node, f)
-        if isinstance(node, Comparision):
-            return transform_comparision(node, f)
+
         if isinstance(node, Literal):
             return transform_literal(node, f)
         if isinstance(node, Rule):
             return transform_rule(node, f)
+        if isinstance(node, Fact):
+            return transform_fact(node, f)
         if isinstance(node, Program):
             return transform_program(node, f)
 
     def transform_term(t, f):
         return f(t)
-
-    def transform_unification(u, f):
-        return f(
-            Unification(
-                transform_term(u.left, f), transform_term(u.right, f), u.positive
-            )
-        )
-
-    def transform_comparision(c, f):
-        return f(
-            Comparision(transform_term(c.left, f), transform_term(c.right, f), c.op)
-        )
 
     def transform_literal(l, f):
         return f(Literal(l.name, [transform_term(t, f) for t in l.args], l.positive))
@@ -259,20 +325,49 @@ def transform(node, f):
             )
         )
 
-    def transform_program(program, f):
+    def transform_fact(fact, f):
         return f(
-            Program(
-                program.type_decls,
-                program.relation_decls,
-                program.functor_decls,
-                program.inputs,
-                program.outputs,
-                [transform_rule(r, f) for r in program.rules],
-                [transform_rule(fact, f) for fact in program.facts],
+            Fact(
+                transform_literal(fact.head, f),
+                [],
+                fact.symbolic_sign,
             )
         )
 
-    return transform_inner(node, f)
+    def transform_program(program, f):
+        return f(
+            Program(
+                program.declarations,
+                program.inputs,
+                program.outputs,
+                [transform_rule(r, f) for r in program.rules],
+                [transform_fact(fact, f) for fact in program.facts],
+                program.symbols,
+            )
+        )
+
+    # re-orgainze the program, since the transform function may convert facts to rules
+    tmp_innder = transform_inner(node, f)
+    if not isinstance(tmp_innder, Program):
+        return tmp_innder
+
+    rules = []
+    facts = []
+    for fact_rule in tmp_innder.facts + tmp_innder.rules:
+        if isinstance(fact_rule, Rule):
+            rules.append(fact_rule)
+        elif isinstance(fact_rule, Fact):
+            facts.append(fact_rule)
+        else:
+            assert False, f"unknown fact_rule {fact_rule}. Bug?"
+    return Program(
+        tmp_innder.declarations,
+        tmp_innder.inputs,
+        tmp_innder.outputs,
+        rules,
+        facts,
+        tmp_innder.symbols,
+    )
 
 
 def collect(node, p):
@@ -283,16 +378,19 @@ def collect(node, p):
             isinstance(node, Variable)
             or isinstance(node, String)
             or isinstance(node, Number)
+            or isinstance(node, SymbolicNumber)
+            or isinstance(node, SymbolicString)
+            or isinstance(node, SymbolicNumberWrapper)
+            or isinstance(node, SymbolicStringWrapper)
         ):
             collect_term(node, p)
-        if isinstance(node, Unification):
-            collect_unification(node, p)
+
         if isinstance(node, Literal):
             collect_literal(node, p)
-        if isinstance(node, Comparision):
-            collect_comparison(node, p)
         if isinstance(node, Rule):
             collect_rule(node, p)
+        if isinstance(node, Fact):
+            collect_fact(node, p)
         if isinstance(node, Program):
             collect_program(node, p)
 
@@ -300,23 +398,11 @@ def collect(node, p):
         if p(t):
             result.append(t)
 
-    def collect_unification(unification, p):
-        collect_term(unification.left, p)
-        collect_term(unification.right, p)
-        if p(unification):
-            result.append(unification)
-
     def collect_literal(literal, p):
         for a in literal.args:
             collect_term(a, p)
         if p(literal):
             result.append(literal)
-
-    def collect_comparison(comparison, p):
-        collect_term(comparison.left, p)
-        collect_term(comparison.right, p)
-        if p(comparison):
-            result.append(comparison)
 
     def collect_rule(rule, p):
         collect_inner(rule.head, p)
@@ -326,16 +412,76 @@ def collect(node, p):
         if p(rule):
             result.append(rule)
 
+    def collect_fact(fact, p):
+        collect_inner(fact.head, p)
+
+        assert not fact.body, "fact body is not empty. Bug?"
+
+        if p(fact):
+            result.append(fact)
+
     def collect_program(program, p):
         for r in program.rules:
             collect_rule(r, p)
         for fact in program.facts:
-            collect_rule(fact, p)
+            collect_fact(fact, p)
+
         if p(program):
             result.append(program)
 
     collect_inner(node, p)
     return result
+
+
+def walk(node, f):
+    def walk_inner(node, f):
+        if (
+            isinstance(node, Variable)
+            or isinstance(node, String)
+            or isinstance(node, Number)
+            or isinstance(node, SymbolicNumber)
+            or isinstance(node, SymbolicString)
+            or isinstance(node, SymbolicNumberWrapper)
+            or isinstance(node, SymbolicStringWrapper)
+        ):
+            walk_term(node, f)
+        if isinstance(node, Literal):
+            walk_literal(node, f)
+        if isinstance(node, Rule):
+            walk_rule(node, f)
+        if isinstance(node, Fact):
+            walk_fact(node, f)
+        if isinstance(node, Program):
+            walk_program(node, f)
+
+    def walk_term(t, f):
+        f(t)
+
+    def walk_literal(literal, f):
+        for a in literal.args:
+            walk_term(a, f)
+        f(literal)
+
+    def walk_rule(rule, f):
+        walk_literal(rule.head, f)
+        if rule.body:
+            for bl in rule.body:
+                walk_inner(bl, f)
+        f(rule)
+
+    def walk_fact(fact, f):
+        walk_literal(fact.head, f)
+        assert not fact.body, "fact body is not empty. Bug?"
+        f(fact)
+
+    def walk_program(program, f):
+        for r in program.rules:
+            walk_rule(r, f)
+        for fact in program.facts:
+            walk_fact(fact, f)
+        f(program)
+
+    walk_inner(node, f)
 
 
 def user_arg_check(raw_arg: Union[str, int]) -> Union[str, int]:
@@ -366,10 +512,32 @@ def to_symlog_arg(
         raise ValueError(f"unknown type {type(raw_arg)}")
 
 
+souffle_parser = Lark(souffle_grammar)
+
+
+def parse(program_str):
+    try:
+        return souffle_parser.parse(program_str)
+
+    except (UnexpectedEOF, UnexpectedInput) as e:
+        error_location = f"line {e.line}, column {e.column}"
+        logger.error(
+            (
+                f"A feature in {e.get_context(program_str)} at {error_location} is"
+                " not supported."
+            ),
+            exc_info=False,
+        )
+        exit(1)
+    except LarkError as e:
+        logger.error(f"A parsing error occurred: {e}", exc_info=False)
+        exit(1)
+
+
 def load_facts(
     directory: Union[str, Path],
     type_check_func: Optional[Callable[[Union[str, int]], Union[str, int]]] = None,
-) -> List[Rule]:
+) -> List[Fact]:
     facts_pattern = Path(directory).glob("*.facts")
     csv_pattern = Path(directory).glob("*.csv")
 
@@ -380,19 +548,20 @@ def load_facts(
             reader = csv.reader(csvfile, delimiter="\t")
             for row in reader:
                 facts.append(
-                    Rule(
+                    Fact(
                         Literal(
                             relation_name,
                             [to_symlog_arg(ra, type_check_func) for ra in row],
                             True,
                         ),
                         [],
+                        False,
                     )
                 )
     return facts
 
 
-def user_load_facts(directory: Union[str, Path]) -> List[Rule]:
+def user_load_facts(directory: Union[str, Path]) -> List[Fact]:
     return load_facts(directory, user_arg_check)
 
 
@@ -439,9 +608,7 @@ def hash_program(program):
     normed_facts = sort_by_string_representation(program.facts)
 
     normed_program = Program(
-        program.type_decls,
-        program.relation_decls,
-        program.functor_decls,
+        program.declarations,
         [],
         [],
         normed_rules,
