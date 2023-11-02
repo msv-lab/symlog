@@ -53,7 +53,7 @@ def analyse_symbolic_constants(
     # Analyse the constansts that symbolic constants in program `p` in principle
     # attempt to unify with during evaluation.
 
-    rules_facts = p.rules.union(p.facts)
+    rules_facts = set(p.rules).union(p.facts)
 
     # Loc = Tuple[str, int]  # loc: (pred_name, index)
     Index = list[int]
@@ -509,14 +509,9 @@ def symvalue_for_name(x: Number | String | SymbolicNumber | SymbolicString) -> s
 
 def transform_program(
     program: Program,
-    facts: List[Fact] = None,
     is_store=True,
 ) -> Program:
     program = copy.deepcopy(program)
-    if facts:
-        assert utils.is_sublist(
-            facts, program.facts
-        ), "Given facts are inconsistent with the program."
 
     # extract symbolic constants from the program
     assert all(
@@ -533,15 +528,12 @@ def transform_program(
     transformed.declarations.update(relation_decls)
 
     abstract_facts = create_abstract_domain_facts(program)
+    print("Abstract domain facts num: ", len(abstract_facts))
     transformed.facts.extend(abstract_facts)
 
     dir_name = os.path.dirname(output_file)
     if not os.path.exists(dir_name):
         os.makedirs(dir_name)
-
-    # # Latest version of Souffle requires all declared .input to have corresponding .fact file.
-    # # So, I remove inputs of transformed program to avoid troubles
-    # transformed = Program(transformed.type_decls, transformed.declarations, transformed.functor_decls, [], transformed.outputs, transformed.rules)
 
     if is_store:
         with open(output_file, "w") as f:

@@ -45,7 +45,10 @@ edge_fact4 = Fact("edge", [String("c"), String("d")]) # edge('c', 'd').
 facts = [edge_fact1, edge_fact2, edge_fact3, edge_fact4]
 
 # alternatively, facts can be loaded from disk
-facts = load_facts('/path/to/edge/facts/')
+decls = {
+    "edge": [SYM, SYM],
+}
+facts = load_facts('/path/to/edge/facts/', decls)
 
 # create a symbolic constant
 const_a = String("a")
@@ -62,9 +65,6 @@ facts = [edge_fact1, edge_fact2, edge_fact3, edge_fact4]
 
 # get constraints of symbolic execution of datalog
 constraints = symex(rules, facts)
-
-print(constraints)
-
 
 # tuples want to be generated
 wanted_tuples = [Fact("reachable", [String("e"), String("d")])] # [reachable('e', 'd')]

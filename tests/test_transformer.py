@@ -1,4 +1,3 @@
-from symlog.environment import Environment
 from symlog.souffle import NUM, pprint
 from symlog.utils import check_equality
 

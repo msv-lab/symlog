@@ -7,9 +7,14 @@ from symlog.shortcuts import (
     Literal,
     SymbolicSign,
     SymbolicConstant,
+    Number,
     symex,
+    parse,
+    load_facts,
 )
-from z3 import And, Or, Not, Bool, Const, StringSort, IntSort, simplify, BoolVal
+
+from z3 import And, Bool, Const, StringSort, BoolVal, simplify
+import time
 
 
 def test_symex_with_sym_sign():
@@ -60,17 +65,7 @@ def test_symex_with_sym_const_sign():
 
     constraints = {k: v.to_z3() for k, v in constraints.items()}
 
-    answer = {
-        Fact("t", [String("b"), String("d")]): simplify(
-            Or(
-                And(Const("alpha", StringSort()) == "b", Bool('s("c", "d").')),
-                And(
-                    Const("alpha", StringSort()) == "symlog_symbolic_1",
-                    Bool('s("c", "d").'),
-                ),
-            )
-        )
-    }
+    answer = {Fact("t", [String("b"), String("d")]): simplify(Bool('s("c", "d").'))}
 
     assert constraints == answer
 

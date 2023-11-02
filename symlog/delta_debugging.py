@@ -57,6 +57,50 @@ def ddmin(
     return input
 
 
+def monotonic_all(provenance_function: Callable, input_list: list) -> list:
+    """Final all minimized input facts that can produce the target output"""
+
+    cached_results = []
+
+    def previous_computed_result(input_data):
+        for prev_result in list(unique_everseen(cached_results, key=tuple)):
+            if is_sublist(prev_result, input_data):
+                return prev_result
+        return None
+
+    def dfs(current_input_list):
+        results = []
+
+        # try to reuse the minimized input computed previously
+        minimized_input = previous_computed_result(current_input_list)
+        # if not, compute the minimal input
+        if not minimized_input:
+            minimized_input = provenance_function(input_list)
+
+        if not minimized_input:
+            return results
+
+        results.append(minimized_input)
+        cached_results.append(minimized_input)
+
+        # get combinations of the minimized_input
+        for comb, complement in combinations_and_complements(minimized_input):
+            comb = list(comb)  # convert tuple to list
+            new_input = comb + filter_out_excluded_items(current_input_list, complement)
+
+            results.extend(dfs(new_input))
+
+        return results
+
+    # execute dfs and retrieve results
+    all_results = dfs(input_list)
+
+    # deduplicate results
+    unique_results = list(unique_everseen(all_results, key=tuple))
+
+    return unique_results
+
+
 def ddmin_all_monotonic(
     test_function: Callable, input_list: list, raise_on_error=False
 ) -> list:

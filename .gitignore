@@ -1,8 +1,5 @@
-tmp/
 *.csv
 symlog/__pycache__/
-# smart_contract_analyser/all-in/
-libfunctors/
 __pycache__/
 *.pyc
 tests/__pycache__
@@ -10,4 +7,11 @@ prof/
 .env
 .vscode/
 .pytest_cache/
-*.dl
+
+tmp/*
+*.lprof
+*binary*
+*.bk
+*.log
+*.json
+./*.dl

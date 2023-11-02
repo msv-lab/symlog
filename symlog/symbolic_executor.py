@@ -12,23 +12,28 @@ from symlog.souffle import (
     SymbolicNumberWrapper,
     SymbolicStringWrapper,
 )
-from symlog.utils import (
-    is_sublist,
-    flatten_lists_only,
-    is_arg_symbolic,
-)
-from symlog.delta_debugging import ddmin_all_monotonic
+from symlog.utils import is_sublist, flatten_lists_only, is_arg_symbolic
 from symlog.common import CONTAINS, DOES_NOT_CONTAIN
-from symlog.program_builder import infer_whole_program, update_program
+from symlog.program_builder import (
+    infer_whole_program,
+    update_program,
+    extract_symbols_from_facts,
+    drop_symbol_wrappers,
+)
 from symlog.transformer import transform_program
+from symlog.provenance import Provenancer
 
-from typing import List, Dict, Tuple, Any, Optional, Set, FrozenSet, Iterable
+from typing import List, Dict, Tuple, Any, Set, FrozenSet
 from collections import defaultdict, namedtuple
-from itertools import product, chain
+from itertools import chain
 from more_itertools import partition
 from functools import lru_cache
 from z3 import Or, And, simplify, Const, IntSort, StringSort, BoolSort
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import os
+import logging
 
+logger = logging.getLogger(__name__)
 
 _OutputCondition = namedtuple("OutputCondition", ["sub_conditions"])
 
@@ -128,27 +133,33 @@ class Condition(
 
 
 class SymbolicExecutor:
+    @staticmethod
     def symex(
-        self,
-        rules: FrozenSet[Rule],
+        rules_or_program: FrozenSet[Rule] | Program,
         input_facts: FrozenSet[Fact],
         interested_output_facts: FrozenSet[Fact],
     ):
-        if len(rules) != len(set(rules)):
-            print(
-                "Warning: Duplicate elements found in 'rules'. Duplicates will be"
-                " discarded in frozenset conversion."
-            )
-        if len(input_facts) != len(set(input_facts)):
-            print(
-                "Warning: Duplicate elements found in 'facts'. Duplicates will be"
-                " discarded in frozenset conversion."
-            )
-        if len(interested_output_facts) != len(set(interested_output_facts)):
-            print(
-                "Warning: Duplicate elements found in 'interested_output_facts'."
-                " Duplicates will be discarded in frozenset conversion."
-            )
+        if not isinstance(rules_or_program, Program):
+            rules = rules_or_program
+
+            if len(rules) != len(set(rules)):
+                print(
+                    "Warning: Duplicate elements found in 'rules'. Duplicates will be"
+                    " discarded in frozenset conversion."
+                )
+            if len(input_facts) != len(set(input_facts)):
+                print(
+                    "Warning: Duplicate elements found in 'facts'. Duplicates will be"
+                    " discarded in frozenset conversion."
+                )
+            if len(interested_output_facts) != len(set(interested_output_facts)):
+                print(
+                    "Warning: Duplicate elements found in 'interested_output_facts'."
+                    " Duplicates will be discarded in frozenset conversion."
+                )
+
+            rules_or_program = frozenset(rules)
+
         constraints = {}
         # check interested output facts one by one
         for fact in interested_output_facts:
@@ -156,16 +167,16 @@ class SymbolicExecutor:
                 raise ValueError(
                     "Arguments of interested facts are conflict with interal keywords."
                 )
-            constraints_of_fact = self._cached_symex(
-                frozenset(rules), frozenset(input_facts), fact
+            constraints_of_fact = SymbolicExecutor._cached_symex(
+                rules_or_program, frozenset(input_facts), fact
             )
             constraints.update(constraints_of_fact)
         return constraints
 
+    @staticmethod
     @lru_cache(maxsize=None)
     def _cached_symex(
-        self,
-        rules: FrozenSet[Rule],
+        rules_or_program: FrozenSet[Rule] | Program,
         input_facts: FrozenSet[Fact],
         interested_output_fact: Fact,
     ):
@@ -173,15 +184,25 @@ class SymbolicExecutor:
 
         # the outputs of the program should at least contain relation of the interested output fact
         outputs = [interested_output_fact.head.name]
-        program = infer_whole_program(rules, input_facts, outputs=outputs)
 
-        meta_output_facts = self._transform_exec_meta_program(program)
+        if isinstance(rules_or_program, frozenset):
+            rules = rules_or_program
+            program = infer_whole_program(rules, input_facts, outputs=outputs)
+        else:
+            inp_program = rules_or_program
+            symbol_list = extract_symbols_from_facts(input_facts)
+            updated_facts = drop_symbol_wrappers(input_facts)
+            program = update_program(
+                inp_program, facts=updated_facts, outputs=outputs, symbols=symbol_list
+            )
+
+        meta_output_facts = SymbolicExecutor._transform_exec_meta_program(program)
 
         # divide output tuples by assignments of symbolic constants and sort them by assignment
         assignment_outputs = {
             k: v
             for k, v in sorted(
-                self._divide_outputs_by_assignments(
+                SymbolicExecutor._divide_outputs_by_assignments(
                     meta_output_facts, program.symbols
                 ).items()
             )
@@ -190,22 +211,39 @@ class SymbolicExecutor:
         constraints = defaultdict(list)
 
         # compute constraints under each assignment of symbolic constants
-        for symbol_value_assigns, output_facts in assignment_outputs.items():
-            constraints_for_intrst_fact = self._preprocess_and_compute_constraints(
-                program,
-                symbol_value_assigns,
-                output_facts,
-                interested_output_fact,
-            )
+        completed_task_count = 0
+        total = len(assignment_outputs)
 
-            if constraints_for_intrst_fact:
-                assert len(constraints_for_intrst_fact) == 1, (
-                    "More than one interested fact? "
-                    "Bug? "
-                    f"constraints_for_intrst_fact: {constraints_for_intrst_fact}"
+        with ProcessPoolExecutor(max_workers=os.cpu_count() // 2) as executor:
+            futuers = {
+                executor.submit(
+                    SymbolicExecutor._preprocess_and_compute_constraints,
+                    program,
+                    symbol_value_assigns,
+                    output_facts,
+                    interested_output_fact,
                 )
-                for intrst_fact, condition in constraints_for_intrst_fact.items():
-                    constraints[intrst_fact].append(condition)
+                for symbol_value_assigns, output_facts in assignment_outputs.items()
+            }
+
+            has_target_num = 0
+            for future in as_completed(futuers):
+                constraints_for_intrst_fact = future.result()
+
+                completed_task_count += 1
+                logger.info(f"completed_task_count: {completed_task_count}/{total}")
+
+                if constraints_for_intrst_fact:
+                    assert len(constraints_for_intrst_fact) == 1, (
+                        "More than one interested fact? "
+                        "Bug? "
+                        f"constraints_for_intrst_fact: {constraints_for_intrst_fact}"
+                    )
+                    for intrst_fact, condition in constraints_for_intrst_fact.items():
+                        constraints[intrst_fact].append(condition)
+                    has_target_num += 1
+
+                logger.info(f"has_target_num: {has_target_num}/{total}")
 
         # further encapulate the constraints
         constraints = {
@@ -215,8 +253,9 @@ class SymbolicExecutor:
 
         return constraints
 
+    @staticmethod
     @lru_cache(maxsize=None)
-    def _get_matched_symbolic_pairs(self, output_fact, intrst_fact):
+    def _get_matched_symbolic_pairs(output_fact, intrst_fact):
         """Get the matched symbolic pairs between the constraint fact and the target fact."""
         matched_pairs = []
         is_match = True
@@ -238,8 +277,8 @@ class SymbolicExecutor:
             matched_pairs = []
         return is_match, matched_pairs
 
+    @staticmethod
     def _get_target_outputs(
-        self,
         output_facts: Set[Fact],
         interested_fact: Fact,
     ):
@@ -251,14 +290,16 @@ class SymbolicExecutor:
 
         for output_fact in output_facts:
             # check if the fact matches the target fact by ignoring the internal keywords of symbolic constants
-            is_match, _ = self._get_matched_symbolic_pairs(output_fact, interested_fact)
+            is_match, _ = SymbolicExecutor._get_matched_symbolic_pairs(
+                output_fact, interested_fact
+            )
             if is_match:
                 target_outputs.add(output_fact)
 
         return target_outputs
 
+    @staticmethod
     def _preprocess_and_compute_constraints(
-        self,
         program: Program,
         symbol_value_assigns: Tuple[SymbolValueAssignment],
         output_facts: List[Fact],
@@ -269,7 +310,10 @@ class SymbolicExecutor:
         # get target outputs NOTE: compute constraints for each target output. Do not repeat the computation for the same target output, thus use set.
         output_facts_set = frozenset(output_facts)
 
-        target_outputs = self._get_target_outputs(output_facts_set, interested_out_fact)
+        # get the target outputs that match the interested fact
+        target_outputs = SymbolicExecutor._get_target_outputs(
+            output_facts_set, interested_out_fact
+        )
 
         if not target_outputs:
             return None
@@ -277,48 +321,31 @@ class SymbolicExecutor:
         # map symbols to the assigned values
         symbol_value_map = dict(symbol_value_assigns)
 
-        # Add non-symbolic sign facts to the program. The symbolic sign facts
-        # will be processed by the delta debugging algorithm
-        non_symsign_facts, symsign_facts = self._split_symsign_nonsymsign_facts(
-            program.facts
-        )
-
         # concretise all facts with the assigned values to the symbols
         (
-            concrete_non_symsign_facts,
-            added_concrete_non_symsign_fact_dict,
-        ) = self._concretise_facts_with_symbols(non_symsign_facts, symbol_value_map)
-        (
-            concrete_symsign_facts,
-            added_concrete_symsign_fact_dict,
-        ) = self._concretise_facts_with_symbols(symsign_facts, symbol_value_map)
+            concrete_facts,
+            concretised_facts_with_symbol_vals,
+        ) = SymbolicExecutor._concretise_facts(program.facts, symbol_value_map)
 
-        # merge the added concretised fact dicts
-        assert (
-            set(added_concrete_non_symsign_fact_dict.keys())
-            & set(added_concrete_symsign_fact_dict.keys())
-            == set()
-        ), "Symbolic sign facts and non-symbolic sign facts are intersected. Bug?"
-
-        # update program with the concretised non-symbolic sign facts and
-        # remove the symbolic sign facts
-        updated_program = update_program(
+        # create a bare program without facts
+        bare_program = update_program(
             program,
-            facts=concrete_non_symsign_facts,
+            facts=[],
         )
 
         # compute the constraints
-        constraints_for_intrst_fact = self._compute_constraints(
-            updated_program,
-            concrete_symsign_facts,
-            symbol_value_assigns,
+        constraints_for_intrst_fact = SymbolicExecutor._compute_constraints(
+            bare_program,
+            concrete_facts,
+            concretised_facts_with_symbol_vals,
             target_outputs,
             interested_out_fact,
         )
 
         return constraints_for_intrst_fact
 
-    def _exists_target(self, input_facts, target_outputs, program):
+    @staticmethod
+    def _exists_target(input_facts, target_outputs, program):
         """Test if the target outputs are in the output of the datalog program."""
 
         # flatten the input fatcs before running program
@@ -330,7 +357,8 @@ class SymbolicExecutor:
         else:
             return DOES_NOT_CONTAIN
 
-    def _transform_exec_meta_program(self, program):
+    @staticmethod
+    def _transform_exec_meta_program(program):
         """Transform program to meta program and execute the meta program."""
 
         transformed_program = transform_program(program)
@@ -345,63 +373,69 @@ class SymbolicExecutor:
 
         return output_facts
 
+    @staticmethod
     def _compute_constraints(
-        self,
-        program: Program,
-        facts_to_check: List[Rule],
-        symbol_value_assigns: Tuple[SymbolValueAssignment],
-        target_outputs: Set[Rule],
+        bare_program: Program,
+        all_facts: Set[Fact],
+        facts_with_symbol_vals: Set[Fact],
+        target_outputs: Set[Fact],
         interested_out_fact: Fact,
-    ) -> Dict[Fact, OutputCondition]:
+    ):
         """
         Compute constraints for the the interested fact that match the target_outputs under given symbol_value_assigns.
         """
 
-        # compute the list of dependent facts for target outputs, where each dependent facts list in the list can generate the target outputs
-        dependent_facts_list = ddmin_all_monotonic(
-            self._test_function(target_outputs, program), facts_to_check
-        )
-
         # constraints for interested_out_fact
         constraints = defaultdict(list)
+        provenancer = Provenancer()
+        # handle the matched target outputs one by one
+        for target_output in target_outputs:
+            dependent_facts_list = provenancer.monotonic_all(
+                bare_program, target_output, all_facts
+            )
 
-        # replace symbol's payloads with the assigned values in the dependent facts list
-        symbol_value_map = dict(symbol_value_assigns)
-        payload_to_val = {
-            symbol.payload: val for symbol, val in symbol_value_map.items()
-        }
-        updated_dependent_facts_list = [
-            [transform(f, lambda x: payload_to_val.get(x, x)) for f in dependent_facts]
-            for dependent_facts in dependent_facts_list
-        ]
+            # get the used symbol value assigns set from the dependent facts
+            symbol_value_assigns = set(
+                chain.from_iterable(
+                    facts_with_symbol_vals[f]
+                    for dependent_facts in dependent_facts_list
+                    for f in dependent_facts
+                    if f in facts_with_symbol_vals
+                )
+            )
 
-        for target_fact in target_outputs:
-            is_match, matched_symbolic_pairs = self._get_matched_symbolic_pairs(
-                target_fact, interested_out_fact
+            # for each dependent facts in the dependent_facts_list, drop the facts that are not symbolic sign facts
+            symsign_dependent_facts_list = [
+                [f for f in dependent_facts if f.symbolic_sign]
+                for dependent_facts in dependent_facts_list
+            ]
+
+            _, matched_symbolic_pairs = SymbolicExecutor._get_matched_symbolic_pairs(
+                target_output, interested_out_fact
             )
             if matched_symbolic_pairs:
-                # further concretise the symbol_value_assigns and updated_dependent_facts_list with the matched values to the symbols
+                # further concretise the symbol_value_assigns and symsign_dependent_facts_list with the matched values to the symbols
                 new_payload_value_map = dict(matched_symbolic_pairs)
-                new_symbol_value_assigns = [
+                new_symbol_value_assigns = set(
                     (
                         symbol,
                         new_payload_value_map.get(symbol.payload, value),
                     )
                     for symbol, value in symbol_value_assigns
-                ]
-                new_updated_dependent_facts_list = [
+                )
+                new_symsign_dependent_facts_list = [
                     [
                         transform(f, lambda x: new_payload_value_map.get(x, x))
                         for f in dependent_facts
                     ]
-                    for dependent_facts in updated_dependent_facts_list
+                    for dependent_facts in symsign_dependent_facts_list
                 ]
                 condition = Condition(
-                    new_symbol_value_assigns, new_updated_dependent_facts_list
+                    new_symbol_value_assigns, new_symsign_dependent_facts_list
                 )
             else:
                 condition = Condition(
-                    symbol_value_assigns, updated_dependent_facts_list
+                    symbol_value_assigns, symsign_dependent_facts_list
                 )
 
             constraints[interested_out_fact].append(condition)
@@ -414,14 +448,8 @@ class SymbolicExecutor:
 
         return constraints
 
-    def _test_function(self, targets, program):
-        """Returns a function that tests if the targets are in the output of the datalog program."""
-        return lambda facts_to_check: self._exists_target(
-            facts_to_check, targets, program
-        )
-
+    @staticmethod
     def _divide_outputs_by_assignments(
-        self,
         output_facts: List[Rule],
         symbols: List[SymbolicNumberWrapper | SymbolicStringWrapper],
     ) -> Dict[Tuple[Any, ...], List[Rule]]:
@@ -454,7 +482,7 @@ class SymbolicExecutor:
             )
 
             # map symbols to the assigned values
-            symbol_value_tuple = self._create_symbol_value_tuple(
+            symbol_value_tuple = SymbolicExecutor._create_symbol_value_tuple(
                 symbols, assigned_values
             )
 
@@ -462,43 +490,45 @@ class SymbolicExecutor:
 
         return assignment_outputs
 
-    def _create_symbol_value_tuple(self, symbolic_constants, assigned_values):
+    @staticmethod
+    def _create_symbol_value_tuple(symbolic_constants, assigned_values):
         """Create a symbol value tuple from the symbolic constants and assigned values."""
         assert len(symbolic_constants) == len(assigned_values), "Mismatched lengths"
 
-        # NOTE: symbol is alias of symbolic constant
         symbol_value_tuple = tuple(
             SymbolValueAssignment(symbol, assigned_values[i])
             for i, symbol in enumerate(symbolic_constants)
         )
         return symbol_value_tuple
 
-    def _concretise_facts_with_symbols(
-        self,
+    @staticmethod
+    def _concretise_facts(
         input_facts: FrozenSet[Fact],
         symbol_value_map: Dict[
             SymbolicNumberWrapper | SymbolicStringWrapper, Number | String
         ],
     ) -> Tuple[List[Rule], Dict[Rule, Set[Any]]]:
-        """Concretise the input facts with the assigned values to the symbols and get the associated symbols."""
+        """Concretise the input facts with the assigned values to the symbols and get the associated symbol value map."""
 
-        all_concretised_facts = []
-        concretised_facts_with_symbols = {}
+        all_concretised_facts = set()
+        concretised_facts_with_symbol_vals = {}
 
-        payload_to_symbol = {
-            symbol.payload: symbol for symbol in symbol_value_map.keys()
-        }
         payload_to_val = {
             symbol.payload: val for symbol, val in symbol_value_map.items()
         }
 
+        payload_to_symbol_value = {
+            symbol.payload: SymbolValueAssignment(symbol, val)
+            for symbol, val in symbol_value_map.items()
+        }
+
         for raw_fact in input_facts:
             concretised_args = []
-            symbols_in_fact = set()
+            symbol_vals_in_fact = set()
             for arg in raw_fact.head.args:
                 if arg in payload_to_val:
                     concretised_args.append(payload_to_val[arg])
-                    symbols_in_fact.add(payload_to_symbol[arg])
+                    symbol_vals_in_fact.add(payload_to_symbol_value[arg])
                 else:
                     concretised_args.append(arg)
 
@@ -508,32 +538,21 @@ class SymbolicExecutor:
                 raw_fact.symbolic_sign,
             )
 
-            if symbols_in_fact:
-                concretised_facts_with_symbols[concretised_fact] = symbols_in_fact
+            if symbol_vals_in_fact:
+                concretised_facts_with_symbol_vals[concretised_fact] = (
+                    symbol_vals_in_fact
+                )
 
-            all_concretised_facts.append(concretised_fact)
+            all_concretised_facts.add(concretised_fact)
 
-        return all_concretised_facts, concretised_facts_with_symbols
-
-    def _split_symsign_nonsymsign_facts(
-        self,
-        facts: FrozenSet[Fact],
-    ) -> Tuple[FrozenSet[Fact], FrozenSet[Fact]]:
-        """Split the facts into symbolic sign facts and non symbolic sign facts."""
-        non_symbolic_sign_facts, symbolic_sign_facts = map(
-            frozenset,
-            partition(lambda f: isinstance(f, Fact) and f.symbolic_sign, facts),
-        )
-
-        return non_symbolic_sign_facts, symbolic_sign_facts
-
-
-symbolic_executor = SymbolicExecutor()
+        return all_concretised_facts, concretised_facts_with_symbol_vals
 
 
 def symex(
-    rules: List[Rule],
+    rules_or_program: List[Rule] | Program,
     input_facts: List[Fact],
     interested_output_facts: List[Fact],
 ):
-    return symbolic_executor.symex(rules, input_facts, interested_output_facts)
+    return SymbolicExecutor.symex(
+        rules_or_program, input_facts, interested_output_facts
+    )

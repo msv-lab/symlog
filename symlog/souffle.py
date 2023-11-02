@@ -6,9 +6,10 @@ import csv
 from collections import namedtuple
 import os
 import hashlib
-from typing import List, Union, Callable, Optional
+from typing import List, Union, Callable, Optional, Set, Dict
 from lark import Lark, Transformer, v_args, UnexpectedInput, LarkError, UnexpectedEOF
 import logging
+
 
 from symlog.common import (
     SYMBOLIC_CONSTANT_PREFIX,
@@ -21,52 +22,39 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.ERROR)
 
 
+class ExtendedNamedTuple:
+    def __repr__(self):
+        return pprint(self).replace("\n", "")
+
+    def __str__(self):
+        return pprint(self).replace("\n", "")
+
+    def __hash__(self):
+        return hash(pprint(self).replace("\n", ""))
+
+
 def namedtuple_with_methods(namedtuple_cls):
-    class ExtendedNamedTuple(namedtuple_cls):
-        def __repr__(self):
-            return pprint(self).replace("\n", "")
-
-        def __str__(self):
-            return pprint(self).replace("\n", "")
-
-        def __hash__(self):
-            return hash(pprint(self).replace("\n", ""))
-
-    ExtendedNamedTuple.__name__ = (
-        namedtuple_cls.__name__
-    )  # Set the class name to be the same as the namedtuple
-    return ExtendedNamedTuple
+    return type(namedtuple_cls.__name__, (ExtendedNamedTuple, namedtuple_cls), {})
 
 
 # relation_decls: name -> argument types
 # output: list of names
 # rules: list of rules
-Program = namedtuple(
-    "Program",
-    [
-        "declarations",
-        "inputs",
-        "outputs",
-        "rules",
-        "facts",
-        "symbols",
-    ],
-)
 
 Variable = namedtuple("Variable", ["name"])
 String = namedtuple("String", ["value"])
 Number = namedtuple("Number", ["value"])
-SymbolicSign = namedtuple("SymbolicSign", ["fact"])
 Underscore = namedtuple("UnderScore", [])
 
 
 class SymbolicString(namedtuple("SymbolicString", ["name"])):
     _next_free_id = 1
 
-    def __new__(cls):
-        name = f"{SYMBOLIC_CONSTANT_PREFIX}{cls._next_free_id}"
+    def __new__(cls, name=None):
+        if name is None:
+            name = f"{SYMBOLIC_CONSTANT_PREFIX}{cls._next_free_id}"
+            cls._next_free_id += 1
         instance = super().__new__(cls, name)
-        cls._next_free_id += 1
         return instance
 
     def __deepcopy__(self, memo):
@@ -83,11 +71,15 @@ class SymbolicString(namedtuple("SymbolicString", ["name"])):
 class SymbolicNumber(namedtuple("SymbolicNumber", ["name"])):
     _next_free_id = 1
 
-    def __new__(cls, name=None):
+    def __new__(cls):
         name = SYMLOG_NUM_POOL[cls._next_free_id]
         instance = super().__new__(cls, name)
         cls._next_free_id += 1
         return instance
+
+    def __deepcopy__(self, memo):
+        # ignore memo
+        return super().__new__(self.__class__, self.name)
 
     def __repr__(self) -> str:
         return f"SymbolicNumber({self.name})"
@@ -101,7 +93,19 @@ SymbolicNumberWrapper = namedtuple("SymbolicNumberWrapper", ["name", "payload"])
 Rule = namedtuple_with_methods(namedtuple("Rule", ["head", "body"]))
 Literal = namedtuple_with_methods(namedtuple("Literal", ["name", "args", "positive"]))
 Fact = namedtuple_with_methods(namedtuple("Fact", ["head", "body", "symbolic_sign"]))
-
+Program = namedtuple_with_methods(
+    namedtuple(
+        "Program",
+        [
+            "declarations",
+            "inputs",
+            "outputs",
+            "rules",
+            "facts",
+            "symbols",
+        ],
+    )
+)
 
 # types
 SYM = "symbol"
@@ -178,7 +182,9 @@ class ASTConstructor(Transformer):
         return Literal(name, args, True)
 
     def negated_atom(self, name, *args):
-        return Literal(name, args, False)
+        raise NotImplementedError(
+            "Negated atoms are not supported. Please convert them to positive atoms"
+        )
 
     def body(self, *args):
         return args
@@ -347,13 +353,13 @@ def transform(node, f):
         )
 
     # re-orgainze the program, since the transform function may convert facts to rules
-    tmp_innder = transform_inner(node, f)
-    if not isinstance(tmp_innder, Program):
-        return tmp_innder
+    tmp_inner = transform_inner(node, f)
+    if not isinstance(tmp_inner, Program):
+        return tmp_inner
 
     rules = []
     facts = []
-    for fact_rule in tmp_innder.facts + tmp_innder.rules:
+    for fact_rule in tmp_inner.facts + tmp_inner.rules:
         if isinstance(fact_rule, Rule):
             rules.append(fact_rule)
         elif isinstance(fact_rule, Fact):
@@ -361,12 +367,12 @@ def transform(node, f):
         else:
             assert False, f"unknown fact_rule {fact_rule}. Bug?"
     return Program(
-        tmp_innder.declarations,
-        tmp_innder.inputs,
-        tmp_innder.outputs,
+        tmp_inner.declarations,
+        tmp_inner.inputs,
+        tmp_inner.outputs,
         rules,
         facts,
-        tmp_innder.symbols,
+        tmp_inner.symbols,
     )
 
 
@@ -499,15 +505,29 @@ def user_arg_check(raw_arg: Union[str, int]) -> Union[str, int]:
 
 def to_symlog_arg(
     raw_arg: Union[str, int],
-    type_check_func: Optional[Callable[[Union[str, int]], Union[str, int]]] = None,
+    decl_type: str,
+    check_func: Optional[Callable] = None,
 ) -> Union[String, Number]:
-    if type_check_func:
-        raw_arg = type_check_func(raw_arg)
+    def is_number(s):
+        try:
+            float(s)
+            return True
+        except ValueError:
+            return False
 
-    if isinstance(raw_arg, str):
+    if check_func:
+        raw_arg = check_func(raw_arg)
+
+    if decl_type == SYM:
         return String(raw_arg)
-    elif isinstance(raw_arg, int):
-        return Number(raw_arg)
+    elif decl_type == NUM:
+        try:
+            return Number(int(raw_arg))
+        except ValueError:
+            logger.error(
+                f"Argument {raw_arg} is not a valid number for type {decl_type}.",
+                exc_info=False,
+            )
     else:
         raise ValueError(f"unknown type {type(raw_arg)}")
 
@@ -517,7 +537,7 @@ souffle_parser = Lark(souffle_grammar)
 
 def parse(program_str):
     try:
-        return souffle_parser.parse(program_str)
+        return ASTConstructor().transform(souffle_parser.parse(program_str))
 
     except (UnexpectedEOF, UnexpectedInput) as e:
         error_location = f"line {e.line}, column {e.column}"
@@ -536,44 +556,72 @@ def parse(program_str):
 
 def load_facts(
     directory: Union[str, Path],
-    type_check_func: Optional[Callable[[Union[str, int]], Union[str, int]]] = None,
-) -> List[Fact]:
+    declarations: Dict[str, List[str]],
+    fact_names: List[str],
+    check_func: Optional[Callable] = None,
+) -> Set[Fact]:
     facts_pattern = Path(directory).glob("*.facts")
     csv_pattern = Path(directory).glob("*.csv")
 
-    facts = []
-    for file in itertools.chain(facts_pattern, csv_pattern):
+    facts = set()
+    target_files = itertools.chain(facts_pattern, csv_pattern)
+    for file in target_files:
         relation_name = file.stem
+
+        if fact_names and relation_name not in fact_names:
+            continue  # skip non-input facts
+
         with file.open() as csvfile:
             reader = csv.reader(csvfile, delimiter="\t")
             for row in reader:
-                facts.append(
-                    Fact(
-                        Literal(
-                            relation_name,
-                            [to_symlog_arg(ra, type_check_func) for ra in row],
-                            True,
-                        ),
-                        [],
-                        False,
+                try:
+                    facts.add(
+                        Fact(
+                            Literal(
+                                relation_name,
+                                [
+                                    to_symlog_arg(
+                                        ra,
+                                        declarations[relation_name][idx],
+                                        check_func,
+                                    )
+                                    for idx, ra in enumerate(row)
+                                ],
+                                True,
+                            ),
+                            [],
+                            False,
+                        )
                     )
-                )
+                except KeyError:
+                    logger.error(
+                        f"Relation {relation_name} is not declared in the program.",
+                        exc_info=False,
+                    )
+                    exit(1)
+                except IndexError:
+                    logger.error(
+                        f"Too many arguments for relation {relation_name}.",
+                        exc_info=False,
+                    )
+                    exit(1)
     return facts
 
 
-def user_load_facts(directory: Union[str, Path]) -> List[Fact]:
-    return load_facts(directory, user_arg_check)
+def user_load_facts(
+    directory: Union[str, Path], declarations: Dict[str, List[str]], inputs: List[str]
+) -> Set[Fact]:
+    return load_facts(directory, declarations, inputs, user_arg_check)
 
 
 def write_facts(directory, facts):
     """write facts to directory"""
-    # Create directory if it does not exist
     Path(directory).mkdir(parents=True, exist_ok=True)
 
-    # Sort facts by their name
+    # sort facts by their name
     sorted_facts = sorted(facts, key=lambda fact: fact.head.name)
 
-    # Group facts by their name
+    # group facts by their name
     grouped_facts = itertools.groupby(sorted_facts, key=lambda fact: fact.head.name)
 
     for name, facts_group in grouped_facts:
@@ -589,84 +637,59 @@ def write_facts(directory, facts):
                 )
 
 
-def hash_program(program):
-    def sort_by_string_representation(elements):
-        if elements is None:
-            return None
-        return sorted(elements, key=str)
+def compile_and_run(program, facts):
+    # hash the content to create a unique identifier
+    encoded_program = pprint(program).encode()
+    hash_object = hashlib.sha256(encoded_program)
+    hex_dig = hash_object.hexdigest()
 
-    # Create hash object
-    hash_obj = hashlib.md5()
+    binary_name = f"binary_{hex_dig}"
 
-    normed_rules = [
-        Rule(rule.head, sort_by_string_representation(rule.body))
-        for rule in program.rules
-    ]
+    if not os.path.exists(binary_name):
+        # if binary doesn't exist, write the content to a temp file, compile, and rename binary
+        with NamedTemporaryFile(delete=False, suffix=".dl") as temp_file:
+            temp_file.write(encoded_program)
+            temp_file.flush()
 
-    normed_rules = sort_by_string_representation(normed_rules)
+        temp_binary_name = os.path.splitext(temp_file.name)[0]
+        compile_command = ["souffle", "-o", temp_binary_name, temp_file.name]
 
-    normed_facts = sort_by_string_representation(program.facts)
+        try:
+            run(compile_command, check=True)
+        except CalledProcessError:
+            logger.error(
+                "Error while compiling the program. Please check the program.",
+                exc_info=False,
+            )
 
-    normed_program = Program(
-        program.declarations,
-        [],
-        [],
-        normed_rules,
-        normed_facts,
-    )  # don't care about inputs and outputs
+        # rename compiled binary to our hashed name
+        os.rename(temp_binary_name, binary_name)
 
-    # Prepare the data to be written
-    data = pprint(normed_program)
+        # cleanup temp file
+        os.remove(temp_file.name)
 
-    for i in range(0, len(data), 4096):
-        chunk = data[i : i + 4096].encode()  # Encode chunk to bytes
-        hash_obj.update(chunk)
+    # execute the binary
+    with TemporaryDirectory() as input_directory:
+        write_facts(input_directory, facts)
+        with TemporaryDirectory() as output_directory:
+            cmd = [
+                "./" + binary_name,
+                "-F",
+                input_directory,
+                "-D",
+                output_directory,
+                "--jobs=auto",
+            ]
 
-    # Return the hexadecimal digest of the hash
-    return hash_obj.hexdigest()
-
-
-def compile_souffle(souffle_file, binary_file, *souffle_args):
-    if os.path.exists(souffle_file):
-        run(
-            ["souffle", "-o", binary_file, souffle_file] + list(souffle_args),
-            check=True,
-            stdout=DEVNULL,
-        )
-    else:
-        print(f"Souffle file {souffle_file} does not exist!")
-
-
-def compile_if_changed(
-    program, souffle_file, binary_file, hash_file_path, *souffle_args
-):
-    # Check if source file has been modified
-    if os.path.exists(souffle_file):
-        curr_hash = hash_program(program)
-        prev_hash = None
-
-        if os.path.exists(hash_file_path):
-            with open(hash_file_path, "r") as file:
-                prev_hash = file.read().strip()
-
-        if curr_hash != prev_hash:
-            compile_souffle(souffle_file, binary_file, *souffle_args)
-
-            # Store current hash to file
-            with open(hash_file_path, "w") as file:
-                file.write(curr_hash)
-    else:
-        print(f"Souffle file {souffle_file} does not exist!")
-
-
-def run_binary(binary_file, *args):
-    if os.path.exists(binary_file):
-        # Run the binary file
-        run(
-            [f"{binary_file}"] + list(args), check=True, stdout=DEVNULL
-        )  # , stderr=DEVNULL)
-    else:
-        raise ValueError(f"Binary file {binary_file} does not exist!")
+            try:
+                run(cmd, check=False, stdout=DEVNULL, stderr=DEVNULL)
+            except Exception as e:
+                logger.error(
+                    f"Error while running the program: {e.stdout.decode()}",
+                    exc_info=False,
+                )
+                exit(1)
+            return load_facts(output_directory, program.declarations, program.outputs)
 
 
 def run_program(program, facts):
@@ -698,4 +721,6 @@ def run_program(program, facts):
                 ]
                 run_cmd(cmd)
 
-                return load_facts(output_directory)
+                return load_facts(
+                    output_directory, program.declarations, program.outputs
+                )

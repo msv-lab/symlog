@@ -1,7 +1,6 @@
 import symlog.souffle as souffle
 import symlog.program_builder as program_builder
 import symlog.symbolic_executor as symbolic_executor
-import symlog.repairer as repairer
 
 
 def Number(value):
@@ -45,7 +44,8 @@ def SymbolicConstant(name=None, type=souffle.SYM):
 
 
 def parse(program_path):
-    """Parses the given program.
+    """
+    Parses the given program.
 
     :param program_path: The path of the program to be parsed
     :type program_path: str
@@ -63,15 +63,17 @@ def parse(program_path):
     return souffle.parse(program_str)
 
 
-def load_facts(directory_path):
+def load_facts(directory_path, declarations, inputs=None):
     """Loads the facts in the given directory.
 
     :param directory_path: The path of the directory containing the facts
     :type directory_path: str
+    :param declarations: The declarations of the facts
+    :type declarations: dict
     :returns: The loaded facts
     :rtype: list of Fact
     """
-    return souffle.user_load_facts(directory_path)
+    return souffle.user_load_facts(directory_path, declarations, inputs)
 
 
 def substitute(source, subs_dict):
@@ -98,20 +100,3 @@ def symex(rules, facts, interested_output_facts):
     :rtype: dict
     """
     return symbolic_executor.symex(rules, facts, interested_output_facts)
-
-
-def repair(rules, facts, wanted_out_facts, unwanted_out_facts):
-    """Repairs the given facts such that the given wanted output facts are generated, and the given unwanted output facts are removed.
-
-    :param rules: The rules to be repaired
-    :type rules: list of Rule
-    :param facts: The facts to be repaired
-    :type facts: list of Fact
-    :param wanted_out_facts: The output facts that we want to generate
-    :type wanted_out_facts: set of Fact
-    :param unwanted_out_facts: The output facts that we want to remove
-    :type unwanted_out_facts: set of Fact
-    :returns: The raw patches in the form of a model
-    :rtype: z3.ModelRef
-    """
-    return repairer.repair(rules, facts, wanted_out_facts, unwanted_out_facts)

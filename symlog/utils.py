@@ -9,7 +9,6 @@ from symlog.souffle import (
 
 import itertools
 from typing import List, Dict, Set, Any
-import os
 from deepdiff import DeepDiff
 from collections import Counter
 from collections.abc import Iterable
@@ -36,12 +35,20 @@ def is_arg_symbolic_or_wildcard(arg) -> bool:
 
 
 def is_arg_symbolic(arg) -> bool:
-    # Returns True if the argument is a symbolic constant/number
+    """Returns True if the argument is a symbolic constant/number"""
     if isinstance(arg, String) and arg.value.startswith(
         common.SYMBOLIC_CONSTANT_PREFIX
     ):
         return True
     elif isinstance(arg, Number) and arg.value in common.SYMLOG_NUM_POOL:
+        return True
+    elif isinstance(arg, SymbolicString) or isinstance(arg, SymbolicNumber):
+        return True
+    elif isinstance(arg, str) and arg.startswith(common.SYMBOLIC_CONSTANT_PREFIX):
+        return True
+    elif isinstance(arg, str) and is_number(arg) and int(arg) in common.SYMLOG_NUM_POOL:
+        return True
+    elif isinstance(arg, int) and arg in common.SYMLOG_NUM_POOL:
         return True
     else:
         return False
@@ -56,7 +63,7 @@ def is_number(s):
 
 
 def is_sublist(list1, list2) -> bool:
-    # Returns True if list1 is a sublist of list2
+    """Returns True if list1 is a sublist of list2"""
     return all(item in list2 for item in list1)
 
 

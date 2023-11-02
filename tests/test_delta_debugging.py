@@ -48,23 +48,23 @@ def have_same_elements(lst1, lst2):
 
 
 def test_ddmin():
-    # # Test case 1
-    # input_data = [1, 2, 4, 5]
-    # expected_output = [1, 2]
-    # assert delta_debugging.ddmin(my_input, input_data) == expected_output
+    # Test case 1
+    input_data = [1, 2, 4, 5]
+    expected_output = [1, 2]
+    assert delta_debugging.ddmin(my_input, input_data) == expected_output
 
-    # # Test case 2
-    # input_data = [1, 2, 3, 4, 5]
-    # possible_output = [[1, 2], [2, 3], [3, 4]]
-    # assert delta_debugging.ddmin(my_input, input_data) in possible_output
+    # Test case 2
+    input_data = [1, 2, 3, 4, 5]
+    possible_output = [[1, 2], [2, 3], [3, 4]]
+    assert delta_debugging.ddmin(my_input, input_data) in possible_output
 
-    # # Test case 3
-    # input_data = [1, 2, 3, 4, 5]
-    # expected_output = [[1, 3, 5]]
-    # result = delta_debugging.ddmin(
-    #     lambda input_list: my_input3(input_list, expected_output), input_data
-    # )
-    # assert result == expected_output[0]
+    # Test case 3
+    input_data = [1, 2, 3, 4, 5]
+    expected_output = [[1, 3, 5]]
+    result = delta_debugging.ddmin(
+        lambda input_list: my_input3(input_list, expected_output), input_data
+    )
+    assert result == expected_output[0]
 
     # Test case 4 (acceptable setting)
     random.seed(10)
@@ -108,7 +108,3 @@ def test_ddmin_all():
     )
     assert have_same_elements(result, expected_output)
 
-
-if __name__ == "__main__":
-    test_ddmin()
-    test_ddmin_all()

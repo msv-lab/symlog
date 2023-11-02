@@ -20,7 +20,7 @@ from symlog.syntax_checker import SyntaxChecker
 from symlog.utils import recursive_flatten
 
 from collections.abc import Iterable
-from more_itertools import partition
+from more_itertools import unique_everseen
 from typing import List, FrozenSet
 from copy import deepcopy
 from itertools import chain
@@ -94,28 +94,10 @@ def infer_whole_program(
     declarations = type_analyser.infer_declarations(rules, facts)
 
     # get the list of symbols
-    symbol_list = list(
-        chain.from_iterable(
-            collect(
-                f,
-                lambda x: isinstance(x, (SymbolicStringWrapper, SymbolicNumberWrapper)),
-            )
-            for f in facts
-        )
-    )
+    symbol_list = extract_symbols_from_facts(facts)
 
     # drop wrapper of the symbols
-    updated_facts = frozenset(
-        transform(
-            f,
-            lambda x: (
-                x.payload
-                if isinstance(x, (SymbolicStringWrapper, SymbolicNumberWrapper))
-                else x
-            ),
-        )
-        for f in facts
-    )
+    updated_facts = drop_symbol_wrappers(facts)
 
     # get the names of the input and output relations
     rule_head_names = set(map(lambda x: x.head.name, rules))
@@ -137,6 +119,41 @@ def infer_whole_program(
         symbols=symbol_list,
     )
     return program
+
+
+def drop_symbol_wrappers(facts: FrozenSet[SouffleFact]):
+    """Drop wrapper of the symbols."""
+    updated_facts = frozenset(
+        transform(
+            f,
+            lambda x: (
+                x.payload
+                if isinstance(x, (SymbolicStringWrapper, SymbolicNumberWrapper))
+                else x
+            ),
+        )
+        for f in facts
+    )
+    return updated_facts
+
+
+def extract_symbols_from_facts(facts: FrozenSet[SouffleFact]):
+    """Extract the symbols from the given facts."""
+    symbol_list = list(
+        unique_everseen(
+            chain.from_iterable(
+                collect(
+                    f,
+                    lambda x: isinstance(
+                        x, (SymbolicStringWrapper, SymbolicNumberWrapper)
+                    ),
+                )
+                for f in facts
+            )
+        )
+    )
+
+    return symbol_list
 
 
 def update_program(
