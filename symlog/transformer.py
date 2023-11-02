@@ -528,7 +528,6 @@ def transform_program(
     transformed.declarations.update(relation_decls)
 
     abstract_facts = create_abstract_domain_facts(program)
-    print("Abstract domain facts num: ", len(abstract_facts))
     transformed.facts.extend(abstract_facts)
 
     dir_name = os.path.dirname(output_file)

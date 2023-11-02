@@ -22,18 +22,18 @@ from symlog.program_builder import (
 )
 from symlog.transformer import transform_program
 from symlog.provenance import Provenancer
+from symlog.logger import get_logger
 
 from typing import List, Dict, Tuple, Any, Set, FrozenSet
 from collections import defaultdict, namedtuple
 from itertools import chain
-from more_itertools import partition
 from functools import lru_cache
 from z3 import Or, And, simplify, Const, IntSort, StringSort, BoolSort
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import os
-import logging
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
 
 _OutputCondition = namedtuple("OutputCondition", ["sub_conditions"])
 
@@ -210,6 +210,7 @@ class SymbolicExecutor:
 
         constraints = defaultdict(list)
 
+        logger.info("Computing the constraints of symbolic signs...")
         # compute constraints under each assignment of symbolic constants
         completed_task_count = 0
         total = len(assignment_outputs)
@@ -243,13 +244,15 @@ class SymbolicExecutor:
                         constraints[intrst_fact].append(condition)
                     has_target_num += 1
 
-                logger.info(f"has_target_num: {has_target_num}/{total}")
+                # logger.info(f"has_target_num: {has_target_num}/{total}")
 
         # further encapulate the constraints
         constraints = {
             output_fact: OutputCondition(conditions)
             for output_fact, conditions in constraints.items()
         }
+
+        logger.info("Computing the constraints of symbolic signs...Done")
 
         return constraints
 
@@ -362,6 +365,8 @@ class SymbolicExecutor:
         """Transform program to meta program and execute the meta program."""
 
         transformed_program = transform_program(program)
+
+        logger.info("Computing the constraints of symbolic constants...")
         # run the transformed program, obtaining all possible outputs
         output_facts = run_program(transformed_program, [])
 
@@ -370,6 +375,8 @@ class SymbolicExecutor:
             set(f.head.name for f in output_facts),
             set(r.head.name for r in program.rules),
         ), "Output tuples' predicates are not all defined IDB relations"
+
+        logger.info("Computing the constraints of symbolic constants...Done")
 
         return output_facts
 

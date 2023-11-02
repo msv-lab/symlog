@@ -8,7 +8,6 @@ import os
 import hashlib
 from typing import List, Union, Callable, Optional, Set, Dict
 from lark import Lark, Transformer, v_args, UnexpectedInput, LarkError, UnexpectedEOF
-import logging
 
 
 from symlog.common import (
@@ -17,9 +16,9 @@ from symlog.common import (
     DOMAIN_PREDICATE_PREFIX,
     SYMLOG_NUM_POOL,
 )
+from symlog.logger import get_logger
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.ERROR)
+logger = get_logger(__name__)
 
 
 class ExtendedNamedTuple:
