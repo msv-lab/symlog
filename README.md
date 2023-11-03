@@ -1,7 +1,8 @@
-# Install
+# Installation Guide
 
 ## Souffle
-Install Souffle by the following commands:
+To install Souffle, execute the following commands in the terminal:
+
 ```bash
 wget -P /tmp https://github.com/souffle-lang/souffle/releases/download/2.2/x86_64-ubuntu-2104-souffle-2.2-Linux.deb
 sudo dpkg -i /tmp/x86_64-ubuntu-2104-souffle-2.2-Linux.deb
@@ -10,26 +11,30 @@ rm /tmp/x86_64-ubuntu-2104-souffle-2.2-Linux.deb
 ```
 
 ## Conda
-Follow the instructions on the [official website](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html).
+For Conda installation, refer to the instructions on the [official website](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html).
 
 
-## Setup Python Environment
-Create a conda environment with Python 3.10:
+## Setting up Python Environment
+Create and activate a conda environment with Python 3.10:
+
 ```bash
 conda create --name myenv python=3.10
 conda activate myenv
 ```
 
-Install the project's dependencies:
+Install the required dependencies within the environment:
+
 ```bash
 pip install -r requirements.txt
 pip install -e .
 ```
 
-Note, all python dependencies are installed in `myenv`. If you want to use the project in another environment, you need to install the dependencies again.
+Note: All Python dependencies are localized to the `myenv`` environment. You will need to reinstall them if you choose to work in a different environment.
 
+# Usage Example
+1. Creating Datalog Rules and Facts in Python.
+Use the following Python script to define Datalog rules and facts:
 
-# API Usage Example
 
 ```Python
 from symlog.shortcuts import (
@@ -82,3 +87,46 @@ print(constraints)
 
 ```
 
+2. Loading Datalog Rules and Facts from Files
+Alternatively, Datalog rules and facts can be loaded from file sources:
+
+```Python
+from symlog.shortcuts import (
+    SymbolicConstant,
+    String,
+    Fact,
+    SymbolicSign,
+    symex,
+    load_facts,
+    parse,
+    substitute,
+)
+from symlog.souffle import SYM
+
+# the reachability rules
+rules = parse("example/reachability.dl")
+
+# the edge facts
+facts = load_facts("example/", rules.declarations)
+
+alpha = SymbolicConstant("alpha")
+
+facts = set(
+    map(lambda fact: SymbolicSign(substitute(fact, {String("a"): alpha})), facts)
+)
+
+facts = {SymbolicSign(f) if str(f) == 'edge("b", "c").' else f for f in facts}
+
+interested_fact = Fact("reachable", [String("a"), String("b")])
+
+# get constraints
+constraints = symex(rules, facts, {interested_fact})
+
+print(constraints)
+
+# {reachable("a", "b").: And(alpha == "a", edge("a", "b").)}
+```
+
+# Limitations
+1. Symlog only supports basic Souffle syntax. Features like aggregation, arithmetic operations, and components are not supported.
+2. Currently, Symlog only supports positive Datalog. If you want to use semi-positive Datalog, you may convert it to positive Datalog first. Support for stratified Datalog will be added in the future.
