@@ -14,7 +14,6 @@ from symlog.shortcuts import (
 )
 
 from z3 import And, Bool, Const, StringSort, BoolVal, simplify
-import time
 
 
 def test_symex_with_sym_sign():
@@ -168,6 +167,43 @@ def test_symex_with_nothing():
 
     answer = {
         Fact("t", [String("a"), String("c")]): BoolVal(True),
+    }
+
+    assert updated_constraints == answer
+
+
+def test_symex_with_number_types():
+    rule = Rule(
+        Literal("t", [Variable("X"), Variable("Z")], True),
+        [
+            Literal("r", [Variable("X"), Variable("Y")], True),
+            Literal("s", [Variable("Y"), Variable("Z")], True),
+        ],
+    )
+
+    facts = [
+        Fact("r", [SymbolicConstant("alpha", type=SYM), Number(1)]),
+        Fact("r", [String("1"), Number(3)]),
+        Fact("s", [Number(1), Number(2)]),
+        Fact("s", [Number(2), Number(3)]),
+    ]
+
+    target_outputs = {
+        Fact("t", [String("1"), Number(2)]),
+    }
+
+    constraints = symex([rule], facts, target_outputs)
+
+    updated_constraints = {k: v.to_z3() for k, v in constraints.items()}
+
+    answer = {
+        Fact("t", [String("1"), Number(2)]): simplify(
+            And(
+                [
+                    Const("alpha", StringSort()) == "1",
+                ]
+            )
+        ),
     }
 
     assert updated_constraints == answer

@@ -1,6 +1,6 @@
-# Installation Guide
+## Installation
 
-## Souffle
+**Setting up Souffle**.
 To install Souffle, execute the following commands in the terminal:
 
 ```bash
@@ -10,16 +10,19 @@ sudo apt-get install -f
 rm /tmp/x86_64-ubuntu-2104-souffle-2.2-Linux.deb
 ```
 
-## Conda
-For Conda installation, refer to the instructions on the [official website](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html).
 
-
-## Setting up Python Environment
-Create and activate a conda environment with Python 3.10:
+**Setting up Python Environment**.
+First, ensure you have virtualenv installed. If not, you can install it using pip:
 
 ```bash
-conda create --name myenv python=3.10
-conda activate myenv
+pip install virtualenv
+```
+
+Create and activate a virtual environment with Python 3.10:
+
+```bash
+virtualenv myenv --python=python3.10
+source myenv/bin/activate
 ```
 
 Install the required dependencies within the environment:
@@ -29,12 +32,28 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-Note: All Python dependencies are localized to the `myenv`` environment. You will need to reinstall them if you choose to work in a different environment.
+*Note*: All Python dependencies are localized to the `myenv` environment. If you work in a different one, you will need to reinstall the dependencies.
 
-# Usage Example
-1. Creating Datalog Rules and Facts in Python.
+To deactivate the virtual environment:
+    
+```bash
+deactivate
+```
+
+## Docker Image
+To build the image:
+```bash
+sudo docker build -t symlog . 
+```
+To run the container:
+```bash
+sudo docker run -it symlog
+```
+
+## Usage Example
+**Creating Datalog Rules and Facts in Python**
+
 Use the following Python script to define Datalog rules and facts:
-
 
 ```Python
 from symlog.shortcuts import (
@@ -87,7 +106,8 @@ print(constraints)
 
 ```
 
-2. Loading Datalog Rules and Facts from Files
+**Loading Datalog Rules and Facts from Files**
+
 Alternatively, Datalog rules and facts can be loaded from file sources:
 
 ```Python
@@ -127,6 +147,6 @@ print(constraints)
 # {reachable("a", "b").: And(alpha == "a", edge("a", "b").)}
 ```
 
-# Limitations
-1. Symlog only supports basic Souffle syntax. Features like aggregation, arithmetic operations, and components are not supported.
-2. Currently, Symlog only supports positive Datalog. If you want to use semi-positive Datalog, you may convert it to positive Datalog first. Support for stratified Datalog will be added in the future.
+## Limitations
+1. Symlog supports only basic Souffle syntax. Features such as aggregation, arithmetic operations, and components are not supported.
+2. Currently, Symlog supports only positive Datalog. If you wish to use semi-positive Datalog, you must first convert it to positive Datalog, if possible. Support for stratified negation will be added in the future.

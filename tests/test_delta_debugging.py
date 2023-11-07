@@ -51,18 +51,18 @@ def test_ddmin():
     # Test case 1
     input_data = [1, 2, 4, 5]
     expected_output = [1, 2]
-    assert delta_debugging.ddmin(my_input, input_data) == expected_output
+    assert delta_debugging.ddmin(my_input, input_data, False) == expected_output
 
     # Test case 2
     input_data = [1, 2, 3, 4, 5]
     possible_output = [[1, 2], [2, 3], [3, 4]]
-    assert delta_debugging.ddmin(my_input, input_data) in possible_output
+    assert delta_debugging.ddmin(my_input, input_data, False) in possible_output
 
     # Test case 3
     input_data = [1, 2, 3, 4, 5]
     expected_output = [[1, 3, 5]]
     result = delta_debugging.ddmin(
-        lambda input_list: my_input3(input_list, expected_output), input_data
+        lambda input_list: my_input3(input_list, expected_output), input_data, False
     )
     assert result == expected_output[0]
 
@@ -72,7 +72,7 @@ def test_ddmin():
     expected_output = [list(random.sample(range(1, 1000), 15)) for _ in range(1)]
     print(f"expected_output: {expected_output}")
     result = delta_debugging.ddmin(
-        lambda input_list: my_input3(input_list, expected_output), input_data
+        lambda input_list: my_input3(input_list, expected_output), input_data, False
     )
     assert have_same_elements([result], expected_output)
 
@@ -107,4 +107,3 @@ def test_ddmin_all():
         lambda input_list: my_input3(input_list, expected_output), input_data
     )
     assert have_same_elements(result, expected_output)
-

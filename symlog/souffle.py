@@ -89,6 +89,8 @@ class SymbolicNumber(namedtuple("SymbolicNumber", ["name"])):
 
 SymbolicStringWrapper = namedtuple("SymbolicStringWrapper", ["name", "payload"])
 SymbolicNumberWrapper = namedtuple("SymbolicNumberWrapper", ["name", "payload"])
+
+
 Rule = namedtuple_with_methods(namedtuple("Rule", ["head", "body"]))
 Literal = namedtuple_with_methods(namedtuple("Literal", ["name", "args", "positive"]))
 Fact = namedtuple_with_methods(namedtuple("Fact", ["head", "body", "symbolic_sign"]))
@@ -235,6 +237,8 @@ def pprint(node):
             return term.payload.name
         elif isinstance(term, SymbolicStringWrapper):
             return term.payload.name
+        elif isinstance(term, Underscore):
+            return "_"
         else:
             assert False, f"unknown term {term}. Bug?"
 
@@ -547,10 +551,10 @@ def parse(program_str):
             ),
             exc_info=False,
         )
-        exit(1)
+        raise e
     except LarkError as e:
         logger.error(f"A parsing error occurred: {e}", exc_info=False)
-        exit(1)
+        raise e
 
 
 def load_facts(

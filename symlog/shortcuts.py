@@ -1,46 +1,46 @@
 import symlog.souffle as souffle
-import symlog.program_builder as program_builder
 import symlog.symbolic_executor as symbolic_executor
+from symlog.program_builder import ProgramBuilder
 
 
 def Number(value):
     """Returns a number with the given value."""
-    return program_builder.Number(value)
+    return ProgramBuilder.Number(value)
 
 
 def String(value):
     """Returns a string with the given value."""
-    return program_builder.String(value)
+    return ProgramBuilder.String(value)
 
 
 def Variable(name):
     """Returns a variable with the given name."""
-    return program_builder.Variable(name)
+    return ProgramBuilder.Variable(name)
 
 
 def Literal(name, args, sign=True):
     """Returns a literal with the given name and args."""
-    return program_builder.Literal(name, args, sign)
+    return ProgramBuilder.Literal(name, args, sign)
 
 
 def Rule(head, body):
     """Returns a rule with the given head and body literals."""
-    return program_builder.Rule(head, body)
+    return ProgramBuilder.Rule(head, body)
 
 
 def Fact(name, args):
     """Returns a input fact with the given name and args."""
-    return program_builder.Fact(name, args, False)
+    return ProgramBuilder.Fact(name, args, False)
 
 
 def SymbolicSign(fact):
     """Returns a fact with symbolic sign."""
-    return program_builder.SymbolicSign(fact)
+    return ProgramBuilder.SymbolicSign(fact)
 
 
 def SymbolicConstant(name=None, type=souffle.SYM):
     """Returns a SymbolicConstant with the given name and type."""
-    return program_builder.SymbolicConstant(name, type)
+    return ProgramBuilder.SymbolicConstant(name, type)
 
 
 def parse(program_path):
@@ -84,7 +84,7 @@ def substitute(source, subs_dict):
     :param subs_dict: The dictionary to be substituted
     :type subs_dict: dict
     """
-    return program_builder.substitute(source, subs_dict)
+    return ProgramBuilder.substitute(source, subs_dict)
 
 
 def symex(rules, facts, interested_output_facts):

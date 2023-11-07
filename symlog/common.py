@@ -69,3 +69,5 @@ DOES_NOT_CONTAIN = 0
 
 # for type analysis
 UNK_TYPE = "unk"
+
+SYMBOLIC_CONSTANT_MAX_NUM = 100

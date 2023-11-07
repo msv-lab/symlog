@@ -1,6 +1,6 @@
 from symlog.souffle import Program, pprint, Fact, compile_and_run
 from symlog.utils import is_sublist
-from symlog.program_builder import update_program
+from symlog.program_builder import ProgramBuilder
 
 from subprocess import Popen, PIPE
 from tempfile import NamedTemporaryFile
@@ -10,7 +10,6 @@ from typing import List, Set, FrozenSet
 from itertools import combinations
 from more_itertools import unique_everseen
 from collections import namedtuple, defaultdict
-import numpy as np
 
 
 ProgramTargetKey = namedtuple("ProgramTargetKey", ["program", "target"])
@@ -80,7 +79,7 @@ class Provenancer:
         if target_fact not in derived_facts:
             return []
 
-        program = update_program(bare_program, facts=input_facts)
+        program = ProgramBuilder.update_program(bare_program, facts=input_facts)
 
         dep_facts = self._base_provenance(program, target_fact)
 

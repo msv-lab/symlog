@@ -21,12 +21,16 @@ from typing import List, FrozenSet
 
 
 class SyntaxChecker:
-    __slots__ = ["literal_arg_num", "literal_constant_types", "symbol_map"]
+    __slots__ = [
+        "literal_arg_num",
+        "literal_constant_types",
+        "user_defined_symbol_map",
+    ]
 
     def __init__(self):
         self.literal_arg_num = {}
         self.literal_constant_types = {}
-        self.symbol_map = {}
+        self.user_defined_symbol_map = {}
 
     def check_literal(self, literal: Literal):
         # check if the number of args is consistent
@@ -45,6 +49,16 @@ class SyntaxChecker:
                     loc in self.literal_constant_types
                     and type(arg) != self.literal_constant_types[loc]
                 ):
+                    if type(arg) in (
+                        SymbolicString,
+                        String,
+                    ) and self.literal_constant_types[loc] in (SymbolicString, String):
+                        continue
+                    if type(arg) in (
+                        SymbolicNumber,
+                        Number,
+                    ) and self.literal_constant_types[loc] in (SymbolicNumber, Number):
+                        continue
                     raise TypeError(
                         f"Type of argument {arg} in {literal} is inconsistent."
                     )
@@ -113,8 +127,11 @@ class SyntaxChecker:
         if not isinstance(sym_num_wrapper.name, str):
             raise TypeError(f"Name for representing {sym_num_wrapper} is not a string.")
 
-        if sym_num_wrapper.name in self.symbol_map:
+        if sym_num_wrapper.payload != self.user_defined_symbol_map.get(
+            sym_num_wrapper.name, sym_num_wrapper.payload
+        ):
             raise ValueError(f"Symbolic number {sym_num_wrapper.name} already used.")
+        self.user_defined_symbol_map[sym_num_wrapper.name] = sym_num_wrapper.payload
 
         assert isinstance(
             sym_num_wrapper.payload, SymbolicNumber
@@ -124,20 +141,21 @@ class SyntaxChecker:
         if not isinstance(sym_str_wrapper.name, str):
             raise TypeError(f"Name for representing {sym_str_wrapper} is not a string.")
 
-        if sym_str_wrapper.name in self.symbol_map:
+        if sym_str_wrapper.payload != self.user_defined_symbol_map.get(
+            sym_str_wrapper.name, sym_str_wrapper.payload
+        ):
             raise ValueError(f"Symbolic string {sym_str_wrapper.name} already used.")
+        self.user_defined_symbol_map[sym_str_wrapper.name] = sym_str_wrapper.payload
 
         assert isinstance(
             sym_str_wrapper.payload, SymbolicString
         ), "Illegal value. Bug?"
 
     def check_symbolic_number(self, sym_num: SymbolicNumber):
-        assert not sym_num.name in SYMLOG_NUM_POOL, "Illegal value. Bug?"
+        assert sym_num.name in SYMLOG_NUM_POOL, "Illegal value. Bug?"
 
     def check_symbolic_string(self, sym_str: SymbolicString):
-        assert not sym_str.name.startswith(
-            SYMBOLIC_CONSTANT_PREFIX
-        ), "Illegal value. Bug?"
+        assert sym_str.name.startswith(SYMBOLIC_CONSTANT_PREFIX), "Illegal value. Bug?"
 
     def check_node(self, node):
         if isinstance(node, String):

@@ -14,12 +14,7 @@ from symlog.souffle import (
 )
 from symlog.utils import is_sublist, flatten_lists_only, is_arg_symbolic
 from symlog.common import CONTAINS, DOES_NOT_CONTAIN
-from symlog.program_builder import (
-    infer_whole_program,
-    update_program,
-    extract_symbols_from_facts,
-    drop_symbol_wrappers,
-)
+from symlog.program_builder import ProgramBuilder
 from symlog.transformer import transform_program
 from symlog.provenance import Provenancer
 from symlog.logger import get_logger
@@ -187,13 +182,13 @@ class SymbolicExecutor:
 
         if isinstance(rules_or_program, frozenset):
             rules = rules_or_program
-            program = infer_whole_program(rules, input_facts, outputs=outputs)
+            program = ProgramBuilder.infer_whole_program(
+                rules, input_facts, outputs=outputs
+            )
         else:
             inp_program = rules_or_program
-            symbol_list = extract_symbols_from_facts(input_facts)
-            updated_facts = drop_symbol_wrappers(input_facts)
-            program = update_program(
-                inp_program, facts=updated_facts, outputs=outputs, symbols=symbol_list
+            program = ProgramBuilder.preprocess_parsed_program(
+                inp_program, input_facts, outputs=outputs
             )
 
         meta_output_facts = SymbolicExecutor._transform_exec_meta_program(program)
@@ -331,7 +326,7 @@ class SymbolicExecutor:
         ) = SymbolicExecutor._concretise_facts(program.facts, symbol_value_map)
 
         # create a bare program without facts
-        bare_program = update_program(
+        bare_program = ProgramBuilder.update_program(
             program,
             facts=[],
         )
@@ -421,6 +416,15 @@ class SymbolicExecutor:
                 target_output, interested_out_fact
             )
             if matched_symbolic_pairs:
+                # check if a symbol matches more than one value
+                # if so, skip the target output
+                symbol_to_values = defaultdict(set)
+                for symbol, value in matched_symbolic_pairs:
+                    symbol_to_values[symbol].add(value)
+
+                if any(len(values) > 1 for values in symbol_to_values.values()):
+                    continue
+
                 # further concretise the symbol_value_assigns and symsign_dependent_facts_list with the matched values to the symbols
                 new_payload_value_map = dict(matched_symbolic_pairs)
                 new_symbol_value_assigns = set(
