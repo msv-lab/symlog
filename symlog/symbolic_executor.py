@@ -256,10 +256,11 @@ class SymbolicExecutor:
     def _get_matched_symbolic_pairs(output_fact, intrst_fact):
         """Get the matched symbolic pairs between the constraint fact and the target fact."""
         matched_pairs = []
-        is_match = True
+        is_match = False
         if (output_fact.head.name == intrst_fact.head.name) and len(
             output_fact.head.args
         ) == len(intrst_fact.head.args):
+            is_match = True
             for arg1, arg2 in zip(output_fact.head.args, intrst_fact.head.args):
                 assert not is_arg_symbolic(
                     arg2
@@ -368,7 +369,7 @@ class SymbolicExecutor:
         # output fact predicates should only include IDB
         assert is_sublist(
             set(f.head.name for f in output_facts),
-            set(r.head.name for r in program.rules),
+            set(r.head.name for r in transformed_program.rules),
         ), "Output tuples' predicates are not all defined IDB relations"
 
         logger.info("Computing the constraints of symbolic constants...Done")

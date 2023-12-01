@@ -70,10 +70,11 @@ class SymbolicString(namedtuple("SymbolicString", ["name"])):
 class SymbolicNumber(namedtuple("SymbolicNumber", ["name"])):
     _next_free_id = 1
 
-    def __new__(cls):
-        name = SYMLOG_NUM_POOL[cls._next_free_id]
+    def __new__(cls, name=None):
+        if name is None:
+            name = SYMLOG_NUM_POOL[cls._next_free_id]
+            cls._next_free_id += 1
         instance = super().__new__(cls, name)
-        cls._next_free_id += 1
         return instance
 
     def __deepcopy__(self, memo):
@@ -234,9 +235,9 @@ def pprint(node):
         elif isinstance(term, Number):
             return str(term.value)
         elif isinstance(term, SymbolicNumberWrapper):
-            return term.payload.name
+            return str(term.payload.name)
         elif isinstance(term, SymbolicStringWrapper):
-            return term.payload.name
+            return str(term.payload.name)
         elif isinstance(term, Underscore):
             return "_"
         else:
@@ -655,15 +656,17 @@ def compile_and_run(program, facts):
             temp_file.flush()
 
         temp_binary_name = os.path.splitext(temp_file.name)[0]
-        compile_command = ["souffle", "-o", temp_binary_name, temp_file.name]
+        compile_command = ["souffle", "-o", temp_binary_name, temp_file.name, "-w"]
 
         try:
+            logger.info(f"Compiling {temp_file.name}...")
             run(compile_command, check=True)
         except CalledProcessError:
             logger.error(
                 "Error while compiling the program. Please check the program.",
                 exc_info=False,
             )
+            exit(1)
 
         # rename compiled binary to our hashed name
         os.rename(temp_binary_name, binary_name)
