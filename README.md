@@ -156,6 +156,9 @@ print(constraints)
 # {reachable("a", "b").: And(alpha == "a", edge("a", "b").)}
 ```
 
+## Patches
+Generated patches: https://drive.google.com/file/d/1PY6AY_jrVVVQuCFg9bpwdPNM5AOlqMw1/view?usp=drive_link
+
 ## Limitations
 1. Symlog supports only basic Souffle syntax. Features such as aggregation, arithmetic operations, and components are not supported.
 2. Currently, Symlog supports only positive Datalog. If you wish to use semi-positive Datalog, you must first convert it to positive Datalog, if possible. Support for stratified negation will be added in the future.
