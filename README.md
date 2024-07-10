@@ -164,4 +164,4 @@ Generated patches: https://drive.google.com/file/d/1PY6AY_jrVVVQuCFg9bpwdPNM5AOl
 2. Currently, Symlog supports only positive Datalog. If you wish to use semi-positive Datalog, you must first convert it to positive Datalog, if possible. Support for stratified negation will be added in the future.
 
 ## Acknowledgements
-This work was partially supported by a Singapore Ministry of Education (MoE) Tier 3 grant “Automated Program Repair”, MOE-MOET32021-0001.
+This work was partially supported by a Singapore Ministry of Education (MoE) Tier 3 grant “Automated Program Repair”, MOE-MOET32021-0001, and by a gift from Oracle.
