@@ -2,7 +2,7 @@
 
 Symlog is a symbolic executor of Datalog programs. It computes dependencies between the input and the output of a query by executing the query on a symbolic database. Please check more details in our publication:
 
-[Program Repair Guided by Datalog-Defined Static Analysis](https://mechtaev.com/files/fse23.pdf)<br>
+[Program Repair Guided by Datalog-Defined Static Analysis](https://drive.google.com/file/d/1ru13N5yLFPUZzq1u0ip2_ycrUeMQfgFH/view?usp=sharing)<br>
 Liu Yu, Sergey Mechtaev, Pavle Subotic, Abhik Roychoudhury<br>
 FSE 2023
 
